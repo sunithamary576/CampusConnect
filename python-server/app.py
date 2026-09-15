@@ -1,11 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+import mysql.connector
 import smtplib
 import os
 import random
 import time
 from email.message import EmailMessage
+
 
 # --------------------------------
 # Load .env

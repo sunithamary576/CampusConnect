@@ -1,108 +1,703 @@
-import React, { useState, useEffect, useRef } from 'react';
-import PostCard from './PostCard';
-import FilePreview from './FilePreview';
+import { useEffect, useState } from "react";
+import FilePreview from "./FilePreview";
 
-export default function Forum(){
-  const [posts,setPosts] = useState([]);
-  const [user,setUser] = useState('');
-  const [text,setText] = useState('');
-  const [file,setFile] = useState(null);
-  const fileInputRef = useRef(null);
-  const listRef = useRef(null);
+export default function Forum() {
+  const [posts, setPosts] = useState([]);
 
-  useEffect(()=>{ setPosts(JSON.parse(localStorage.getItem('posts'))||[]); },[]);
+  // =========================
+  // CREATE POST STATES
+  // =========================
 
-  useEffect(()=>{ localStorage.setItem('posts', JSON.stringify(posts)); },[posts]);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [postFile, setPostFile] = useState(null);
 
-  const toDataUrl = (file)=> new Promise((resolve,reject)=>{
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
 
-  // file restrictions
-  const MAX_BYTES = 3 * 1024 * 1024; // 3MB
-  const ALLOWED = ['png','jpg','jpeg','gif','webp','pdf','doc','docx','txt','rtf'];
+  // =========================
+  // MESSAGE STATES
+  // =========================
 
-  const validateFile = (f) =>{
-    if(!f) return {ok:true};
-    if(f.size > MAX_BYTES) return {ok:false, msg:'File too large (max 3MB)'};
-    const ext = f.name.split('.').pop().toLowerCase();
-    if(!ALLOWED.includes(ext)) return {ok:false, msg:'File type not allowed'};
-    return {ok:true};
-  }
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("");
 
-  const addPost = async ()=>{
-    if(!user || !text) return alert('Please fill all fields');
+  // =========================
+  // REPLY STATES
+  // =========================
 
-    const v = validateFile(file);
-    if(!v.ok) return alert(v.msg);
+  // Replies for each post
+  const [replies, setReplies] = useState({});
 
-    const fileData = file ? await toDataUrl(file) : null;
+  // Reply text for each post
+  const [replyText, setReplyText] = useState({});
 
-    setPosts(prev=>[
-      ...prev,
-      { user, text, file:fileData, fileName:file?file.name:null, id:Date.now(), replies:[] }
-    ]);
+  // Reply file for each post
+  const [replyFile, setReplyFile] = useState({});
 
-    setUser(''); setText(''); setFile(null); if(fileInputRef.current) fileInputRef.current.value='';
+  // Which posts have replies visible
+  const [showReplies, setShowReplies] = useState({});
 
-    // scroll to bottom
-    setTimeout(()=>{ listRef.current?.scrollIntoView({behavior:'smooth', block:'end'}); }, 100);
-  }
+  // Loading state for each post's replies
+  const [replyLoading, setReplyLoading] = useState({});
 
-  const updatePost = (id,newText)=>{
-    setPosts(prev=>prev.map(p=> p.id===id?{...p,text:newText}:p ));
-  }
-  const deletePost = (id)=>{ if(window.confirm('Delete post?')) setPosts(prev=>prev.filter(p=>p.id!==id)); }
+  // =========================
+  // LOAD FORUM POSTS
+  // =========================
 
-  const addReply = async (postId, replyUser, replyText, replyFile, replyFileName)=>{
-    const v = validateFile(replyFile);
-    if(!v.ok) return alert(v.msg);
-    const fileData = replyFile ? await toDataUrl(replyFile) : null;
+  const loadPosts = async () => {
+    try {
+      setLoading(true);
 
-    setPosts(prev=> prev.map(p=> p.id===postId?{...p, replies:[...p.replies, {user:replyUser, text:replyText, file:fileData, fileName: replyFileName || null }]}:p ));
+      const response = await fetch(
+        "http://localhost:5000/forum/posts",
+        {
+          credentials: "include",
+        }
+      );
 
-    setTimeout(()=>{ document.getElementById(`post-${postId}`)?.scrollIntoView({behavior:'smooth', block:'end'}); }, 100);
-  }
+      const data = await response.json();
 
-  const editReply = (postId, idx, newText)=>{
-    setPosts(prev=>prev.map(p=>{ if(p.id!==postId) return p; const r=[...p.replies]; r[idx].text=newText; return {...p,replies:r}; }));
-  }
-  const deleteReply = (postId, idx)=>{
-    setPosts(prev=>prev.map(p=>{ if(p.id!==postId) return p; const r=p.replies.filter((_,i)=>i!==idx); return {...p,replies:r}; }));
-  }
+      if (response.ok) {
+        setPosts(data.posts || []);
+      } else {
+        setMessage(
+          data.message || "Unable to load forum posts."
+        );
+        setMessageType("error");
+      }
+    } catch (error) {
+      console.error(error);
+
+      setMessage("Unable to connect to the server.");
+      setMessageType("error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load posts when page opens
+  useEffect(() => {
+    loadPosts();
+  }, []);
+
+  // =========================
+  // CREATE FORUM POST
+  // =========================
+
+  const createPost = async () => {
+    if (!title.trim() || !content.trim()) {
+      setMessage("Title and content are required.");
+      setMessageType("error");
+      return;
+    }
+
+    setPosting(true);
+    setMessage("Creating post...");
+    setMessageType("loading");
+
+    try {
+      const formData = new FormData();
+
+      formData.append("title", title.trim());
+      formData.append("content", content.trim());
+
+      // Add file only if selected
+      if (postFile) {
+        formData.append("file", postFile);
+      }
+
+      const response = await fetch(
+        "http://localhost:5000/forum/posts",
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setMessage("Post created successfully.");
+        setMessageType("success");
+
+        // Clear form
+        setTitle("");
+        setContent("");
+        setPostFile(null);
+
+        // Reload posts
+        await loadPosts();
+      } else {
+        setMessage(
+          data.message || "Unable to create post."
+        );
+        setMessageType("error");
+      }
+    } catch (error) {
+      console.error(error);
+
+      setMessage("Unable to connect to the server.");
+      setMessageType("error");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  // =========================
+  // LOAD REPLIES
+  // =========================
+
+  const loadReplies = async (postId) => {
+    try {
+      setReplyLoading((previous) => ({
+        ...previous,
+        [postId]: true,
+      }));
+
+      const response = await fetch(
+        `http://localhost:5000/forum/posts/${postId}/replies`,
+        {
+          credentials: "include",
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setReplies((previous) => ({
+          ...previous,
+          [postId]: data.replies || [],
+        }));
+      } else {
+        setMessage(
+          data.message || "Unable to load replies."
+        );
+        setMessageType("error");
+      }
+    } catch (error) {
+      console.error(error);
+
+      setMessage("Unable to connect to the server.");
+      setMessageType("error");
+    } finally {
+      setReplyLoading((previous) => ({
+        ...previous,
+        [postId]: false,
+      }));
+    }
+  };
+
+  // =========================
+  // SHOW / HIDE REPLIES
+  // =========================
+
+  const toggleReplies = (postId) => {
+    const currentlyShowing = showReplies[postId];
+
+    setShowReplies((previous) => ({
+      ...previous,
+      [postId]: !currentlyShowing,
+    }));
+
+    // Load replies when opening
+    if (!currentlyShowing) {
+      loadReplies(postId);
+    }
+  };
+
+  // =========================
+  // POST REPLY
+  // =========================
+
+  const postReply = async (postId) => {
+    const text = replyText[postId] || "";
+    const file = replyFile[postId] || null;
+
+    if (!text.trim()) {
+      setMessage("Reply cannot be empty.");
+      setMessageType("error");
+      return;
+    }
+
+    try {
+      setReplyLoading((previous) => ({
+        ...previous,
+        [postId]: true,
+      }));
+
+      const formData = new FormData();
+
+      formData.append("content", text.trim());
+
+      // Add reply attachment if selected
+      if (file) {
+        formData.append("file", file);
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/forum/posts/${postId}/replies`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setMessage("Reply posted successfully.");
+        setMessageType("success");
+
+        // Clear reply text
+        setReplyText((previous) => ({
+          ...previous,
+          [postId]: "",
+        }));
+
+        // Clear reply file
+        setReplyFile((previous) => ({
+          ...previous,
+          [postId]: null,
+        }));
+
+        // Reload replies
+        await loadReplies(postId);
+
+        // Keep replies visible
+        setShowReplies((previous) => ({
+          ...previous,
+          [postId]: true,
+        }));
+      } else {
+        setMessage(
+          data.message || "Unable to post reply."
+        );
+        setMessageType("error");
+      }
+    } catch (error) {
+      console.error(error);
+
+      setMessage("Unable to connect to the server.");
+      setMessageType("error");
+    } finally {
+      setReplyLoading((previous) => ({
+        ...previous,
+        [postId]: false,
+      }));
+    }
+  };
+
+  // =========================
+  // PAGE UI
+  // =========================
 
   return (
-    <section className="section">
-      <h3>Discussion Forum 💬</h3>
-      <div className="card">
-        <h4>Add a New Post</h4>
-        <input placeholder="Your name" value={user} onChange={e=>setUser(e.target.value)} />
-        <textarea placeholder="Write something..." value={text} onChange={e=>setText(e.target.value)} />
+    <div className="container py-5">
 
-        <div className="flex-row">
-          <input ref={fileInputRef} id="postFile" type="file" onChange={e=>setFile(e.target.files[0])} />
-          <div className="tag">Max 3MB • png/jpg/pdf/doc</div>
-        </div>
+      {/* =========================
+          PAGE TITLE
+      ========================= */}
 
-        {file && <FilePreview fileData={URL.createObjectURL(file)} fileName={file.name} />}
+      <div className="text-center mb-4">
+        <h1 className="fw-bold">
+          Campus Forum
+        </h1>
 
-        <div style={{display:'flex',gap:8,marginTop:8}}>
-          <button className="primary" onClick={addPost}>Post</button>
-          <button className="ghost" onClick={()=>{ setUser(''); setText(''); setFile(null); if(fileInputRef.current) fileInputRef.current.value=''; }}>Clear</button>
-        </div>
+        <p className="text-muted">
+          Ask questions, share ideas, and discuss with other students.
+        </p>
       </div>
 
-      <div ref={listRef}>
-        {posts.map((p)=> (
-          <div id={`post-${p.id}`} key={p.id}>
-            <PostCard post={p} onEdit={updatePost} onDelete={deletePost}
-              onAddReply={addReply} onEditReply={editReply} onDeleteReply={deleteReply} />
+      {/* =========================
+          GLOBAL MESSAGE
+      ========================= */}
+
+      {message && (
+        <div
+          className={`alert ${
+            messageType === "success"
+              ? "alert-success"
+              : messageType === "error"
+              ? "alert-danger"
+              : "alert-secondary"
+          }`}
+        >
+          {message}
+        </div>
+      )}
+
+      {/* =========================
+          CREATE POST
+      ========================= */}
+
+      <div className="card shadow-sm border-0 mb-5">
+        <div className="card-body">
+
+          <h4 className="fw-bold mb-3">
+            Create a Discussion
+          </h4>
+
+          {/* TITLE */}
+
+          <div className="mb-3">
+            <label className="form-label fw-semibold">
+              Title
+            </label>
+
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Enter discussion title"
+              value={title}
+              onChange={(e) =>
+                setTitle(e.target.value)
+              }
+              disabled={posting}
+            />
           </div>
-        ))}
+
+          {/* CONTENT */}
+
+          <div className="mb-3">
+            <label className="form-label fw-semibold">
+              Description
+            </label>
+
+            <textarea
+              className="form-control"
+              rows="4"
+              placeholder="Write your question or discussion..."
+              value={content}
+              onChange={(e) =>
+                setContent(e.target.value)
+              }
+              disabled={posting}
+            />
+          </div>
+
+          {/* POST ATTACHMENT */}
+
+          <div className="mb-3">
+            <label className="form-label fw-semibold">
+              Attachment (optional)
+            </label>
+
+            <input
+              type="file"
+              className="form-control"
+              accept=".png,.jpg,.jpeg,.pdf,.doc,.docx"
+              onChange={(e) => {
+                setPostFile(
+                  e.target.files[0] || null
+                );
+              }}
+              disabled={posting}
+            />
+
+            <small className="text-muted">
+              Max 3 MB • PNG, JPG, PDF, DOC, DOCX
+            </small>
+          </div>
+
+          {/* SELECTED POST FILE */}
+
+          {postFile && (
+            <div className="alert alert-secondary">
+              Selected file:{" "}
+              <strong>{postFile.name}</strong>
+            </div>
+          )}
+
+          {/* CREATE BUTTON */}
+
+          <button
+            className="btn btn-primary"
+            onClick={createPost}
+            disabled={posting}
+          >
+            {posting
+              ? "Posting..."
+              : "Create Post"}
+          </button>
+
+        </div>
       </div>
-    </section>
-  )
+
+      {/* =========================
+          FORUM POSTS
+      ========================= */}
+
+      <h3 className="fw-bold mb-3">
+        Discussions
+      </h3>
+
+      {/* LOADING */}
+
+      {loading ? (
+        <div className="text-center py-4">
+
+          <div
+            className="spinner-border text-primary"
+            role="status"
+          ></div>
+
+          <p className="mt-2">
+            Loading discussions...
+          </p>
+
+        </div>
+      ) : posts.length === 0 ? (
+
+        /* NO POSTS */
+
+        <div className="alert alert-info">
+          No discussions yet. Be the first to create one!
+        </div>
+
+      ) : (
+
+        /* POSTS */
+
+        posts.map((post) => (
+          <div
+            className="card shadow-sm border-0 mb-4"
+            key={post.id}
+          >
+
+            <div className="card-body">
+
+              {/* POST TITLE */}
+
+              <h4 className="fw-bold">
+                {post.title}
+              </h4>
+
+              {/* POST CONTENT */}
+
+              <p
+                className="mt-3 mb-3"
+                style={{
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {post.content}
+              </p>
+
+              {/* POST ATTACHMENT */}
+
+              {post.file_path && (
+                <FilePreview
+                  fileData={`http://localhost:5000/forum/files/${post.file_path}`}
+                  fileName={post.file_name}
+                />
+              )}
+
+              {/* POST INFORMATION */}
+
+              <div className="text-muted small mb-3">
+                Posted by{" "}
+                <strong>
+                  {post.user_name}
+                </strong>
+
+                {" • "}
+
+                {new Date(
+                  post.created_at
+                ).toLocaleString()}
+              </div>
+
+              {/* REPLY BUTTON */}
+
+              <button
+                className="btn btn-outline-primary btn-sm"
+                onClick={() =>
+                  toggleReplies(post.id)
+                }
+              >
+                {showReplies[post.id]
+                  ? "Hide Replies"
+                  : "View Replies"}
+              </button>
+
+              {/* =========================
+                  REPLIES SECTION
+              ========================= */}
+
+              {showReplies[post.id] && (
+                <div className="mt-4">
+
+                  <h6 className="fw-bold mb-3">
+                    Replies
+                  </h6>
+
+                  {/* LOADING REPLIES */}
+
+                  {replyLoading[post.id] &&
+                  (!replies[post.id] ||
+                    replies[post.id].length === 0) ? (
+
+                    <div className="text-muted small">
+                      Loading replies...
+                    </div>
+
+                  ) : replies[post.id] &&
+                    replies[post.id].length > 0 ? (
+
+                    /* REPLY LIST */
+
+                    replies[post.id].map(
+                      (reply) => (
+                        <div
+                          key={reply.id}
+                          className="border rounded p-3 mb-2 bg-light"
+                        >
+
+                          {/* REPLY USER */}
+
+                          <div className="fw-semibold">
+                            {reply.user_name}
+                          </div>
+
+                          {/* REPLY CONTENT */}
+
+                          <div
+                            className="mt-1"
+                            style={{
+                              whiteSpace:
+                                "pre-wrap",
+                            }}
+                          >
+                            {reply.content}
+                          </div>
+
+                          {/* REPLY ATTACHMENT */}
+
+                          {reply.file_path && (
+                            <FilePreview
+                              fileData={`http://localhost:5000/forum/files/${reply.file_path}`}
+                              fileName={
+                                reply.file_name
+                              }
+                            />
+                          )}
+
+                          {/* REPLY DATE */}
+
+                          <div className="text-muted small mt-2">
+                            {new Date(
+                              reply.created_at
+                            ).toLocaleString()}
+                          </div>
+
+                        </div>
+                      )
+                    )
+
+                  ) : (
+
+                    <div className="text-muted small mb-3">
+                      No replies yet. Be the first to reply!
+                    </div>
+
+                  )}
+
+                  {/* =========================
+                      WRITE REPLY
+                  ========================= */}
+
+                  <div className="mt-3">
+
+                    <textarea
+                      className="form-control mb-2"
+                      rows="2"
+                      placeholder="Write a reply..."
+                      value={
+                        replyText[post.id] || ""
+                      }
+                      onChange={(e) =>
+                        setReplyText(
+                          (previous) => ({
+                            ...previous,
+                            [post.id]:
+                              e.target.value,
+                          })
+                        )
+                      }
+                      disabled={
+                        replyLoading[post.id]
+                      }
+                    />
+
+                    {/* REPLY FILE */}
+
+                    <div className="mb-2">
+
+                      <input
+                        type="file"
+                        className="form-control form-control-sm"
+                        accept=".png,.jpg,.jpeg,.pdf,.doc,.docx"
+                        onChange={(e) =>
+                          setReplyFile(
+                            (previous) => ({
+                              ...previous,
+                              [post.id]:
+                                e.target.files[0] ||
+                                null,
+                            })
+                          )
+                        }
+                        disabled={
+                          replyLoading[post.id]
+                        }
+                      />
+
+                      <small className="text-muted">
+                        Max 3 MB • PNG, JPG, PDF, DOC, DOCX
+                      </small>
+
+                    </div>
+
+                    {/* SELECTED REPLY FILE */}
+
+                    {replyFile[post.id] && (
+                      <div className="alert alert-secondary py-2">
+                        Selected file:{" "}
+                        <strong>
+                          {replyFile[post.id].name}
+                        </strong>
+                      </div>
+                    )}
+
+                    {/* POST REPLY BUTTON */}
+
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() =>
+                        postReply(post.id)
+                      }
+                      disabled={
+                        replyLoading[post.id]
+                      }
+                    >
+                      {replyLoading[post.id]
+                        ? "Posting..."
+                        : "Post Reply"}
+                    </button>
+
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+          </div>
+        ))
+      )}
+
+    </div>
+  );
 }

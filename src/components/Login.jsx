@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export default function Login({ setActive }) {
+export default function Login({ setActive, setCurrentUser }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,6 +39,8 @@ export default function Login({ setActive }) {
     if (response.ok) {
       setMessage("Login successful!");
       setMessageType("success");
+
+      setCurrentUser(data.user);
 
       setTimeout(() => {
         setActive("home");
@@ -116,6 +118,26 @@ export default function Login({ setActive }) {
             {message}
           </div>
         )}
+
+        <p className="text-center mt-3 mb-0">
+          <button
+            type="button"
+            className="btn btn-link p-0"
+            onClick={() => setActive("forgot-password")}
+          >
+            Forgot Password?
+          </button>
+        </p>
+        <p className="text-center mt-3 mb-0">
+          Don't have an account?{" "}
+          <button
+            type="button"
+            className="btn btn-link p-0"
+            onClick={() => setActive("register")}
+          >
+            Register
+          </button>
+        </p>
       </div>
     </div>
   );

@@ -23,13 +23,8 @@ export default function Navbar({
       );
 
       if (response.ok) {
-        // Remove logged-in user
         setCurrentUser(null);
-
-        // Go back to login
         setActive("login");
-
-        // Remove saved page
         localStorage.removeItem("activePage");
       }
     } catch (error) {
@@ -38,7 +33,7 @@ export default function Navbar({
   };
 
   return (
-    <nav className="navbar">
+    <div className="top-navigation">
       {items.map((item) => (
         <button
           key={item}
@@ -52,6 +47,6 @@ export default function Navbar({
       <button onClick={logout}>
         Logout
       </button>
-    </nav>
+    </div>
   );
 }

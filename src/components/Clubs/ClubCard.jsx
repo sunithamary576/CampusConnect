@@ -1,14 +1,52 @@
-import React from 'react';
+import React from "react";
 
-export default function ClubCard({ club, onDelete }){
+export default function ClubCard({ club, onDelete }) {
+
+  const deleteClub = async () => {
+
+    if (!window.confirm("Delete this club?")) {
+      return;
+    }
+
+    if (onDelete) {
+      onDelete(club.id);
+    }
+  };
+
+
   return (
-    <div className="card">
-      <h4>{club.n}</h4>
-      <p>{club.d}</p>
-      <div>
-        <button style={{background:'#facc15',color:'#000'}} onClick={()=>{const nn=prompt('Edit club name:',club.n); const dd=prompt('Edit description:',club.d); if(nn && dd){ const arr=JSON.parse(localStorage.getItem('clubs')||'[]'); const updated=arr.map(x=>x.id===club.id?{...x,n:nn,d:dd}:x); localStorage.setItem('clubs',JSON.stringify(updated)); window.location.reload(); }}}>✏️ Edit</button>
-        <button style={{background:'#ef4444',marginLeft:8}} onClick={onDelete}>🗑️ Delete</button>
+    <div className="card shadow-sm border-0 mb-3">
+
+      <div className="card-body">
+
+        <h4 className="fw-bold">
+          {club.name}
+        </h4>
+
+        <p className="text-muted mb-3">
+          {club.description}
+        </p>
+
+
+        {club.created_at && (
+          <div className="text-muted small mb-3">
+            Created:{" "}
+            {new Date(
+              club.created_at
+            ).toLocaleString()}
+          </div>
+        )}
+
+
+        <button
+          className="btn btn-danger btn-sm"
+          onClick={deleteClub}
+        >
+          🗑️ Delete
+        </button>
+
       </div>
+
     </div>
-  )
+  );
 }

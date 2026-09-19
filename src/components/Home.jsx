@@ -8,6 +8,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
   const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
 
   const loadAnnouncements = async () => {
     try {
@@ -23,11 +24,14 @@ export default function Home() {
       if (response.ok) {
         setAnnouncements(data.announcements);
       } else {
-        setMessage(data.message || "Unable to load announcements.");
+        setMessage(
+          data.message || "Unable to load announcements."
+        );
         setMessageType("error");
       }
     } catch (error) {
       console.error(error);
+
       setMessage("Unable to connect to the server.");
       setMessageType("error");
     }
@@ -48,6 +52,8 @@ export default function Home() {
       return;
     }
 
+    setPosting(true);
+
     try {
       const response = await fetch(
         "http://localhost:5000/announcements",
@@ -67,8 +73,11 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.message || "Unable to post announcement.");
+        setMessage(
+          data.message || "Unable to post announcement."
+        );
         setMessageType("error");
+        setPosting(false);
         return;
       }
 
@@ -78,111 +87,366 @@ export default function Home() {
       setTitle("");
       setContent("");
 
-      loadAnnouncements();
+      await loadAnnouncements();
     } catch (error) {
       console.error(error);
+
       setMessage("Unable to connect to the server.");
       setMessageType("error");
     }
+
+    setPosting(false);
   };
 
   return (
-    <section className="container py-4">
+    <section className="container py-4 pb-5 mb-5"> 
+      {/* =========================
+          WELCOME SECTION
+      ========================== */}
 
-      {/* Welcome */}
-      <div className="card shadow-sm border-0 p-4 mb-4">
-        <h3 className="fw-bold">
-          Welcome to CampusConnect 🎓
-        </h3>
+      <div
+        className="card border-0 shadow-sm mb-4 overflow-hidden"
+        style={{
+          background:
+            "linear-gradient(135deg, #2563eb, #1d4ed8)",
+          color: "white",
+        }}
+      >
+        <div className="card-body p-4 p-md-5">
 
-        <p className="text-muted mb-0">
-          Stay updated with campus events, discussions, and clubs!
-        </p>
-      </div>
+          <div className="d-flex align-items-center mb-3">
+            <div
+              className="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center me-3"
+              style={{
+                width: "55px",
+                height: "55px",
+                fontSize: "25px",
+              }}
+            >
+              🎓
+            </div>
 
-      {/* Create Announcement */}
-      <div className="card shadow-sm border-0 p-4 mb-4">
-        <h4 className="fw-bold mb-3">
-          📢 Post an Announcement
-        </h4>
+            <div>
+              <h2 className="fw-bold mb-1">
+                Welcome to CampusConnect
+              </h2>
 
-        <input
-          type="text"
-          className="form-control mb-3"
-          placeholder="Announcement title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-
-        <textarea
-          className="form-control mb-3"
-          rows="4"
-          placeholder="Write your announcement..."
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-        />
-
-        <button
-          className="btn btn-primary"
-          onClick={postAnnouncement}
-        >
-          Post Announcement
-        </button>
-
-        {message && (
-          <div
-            className={`alert mt-3 mb-0 ${
-              messageType === "success"
-                ? "alert-success"
-                : "alert-danger"
-            }`}
-          >
-            {message}
+              <p className="mb-0 opacity-75">
+                Your campus, all in one place.
+              </p>
+            </div>
           </div>
-        )}
+
+          <p className="mb-0 mt-3">
+            Stay connected with campus announcements,
+            events, discussions, clubs, polls, and student
+            activities.
+          </p>
+
+        </div>
       </div>
 
-      {/* Announcements */}
-      <div>
-        <h4 className="fw-bold mb-3">
-          📢 Campus Announcements
-        </h4>
+
+      {/* =========================
+          QUICK FEATURES
+      ========================== */}
+
+      <div className="row g-3 mb-4">
+
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm text-center h-100">
+            <div className="card-body py-4">
+              <div className="fs-2 mb-2">📢</div>
+              <h6 className="fw-bold mb-1">
+                Announcements
+              </h6>
+              <small className="text-muted">
+                Campus updates
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm text-center h-100">
+            <div className="card-body py-4">
+              <div className="fs-2 mb-2">💬</div>
+              <h6 className="fw-bold mb-1">
+                Forum
+              </h6>
+              <small className="text-muted">
+                Discuss with students
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm text-center h-100">
+            <div className="card-body py-4">
+              <div className="fs-2 mb-2">📅</div>
+              <h6 className="fw-bold mb-1">
+                Events
+              </h6>
+              <small className="text-muted">
+                Campus activities
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm text-center h-100">
+            <div className="card-body py-4">
+              <div className="fs-2 mb-2">📊</div>
+              <h6 className="fw-bold mb-1">
+                Polls
+              </h6>
+              <small className="text-muted">
+                Share your opinion
+              </small>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+
+      {/* =========================
+          CREATE ANNOUNCEMENT
+      ========================== */}
+
+      <div className="card border-0 shadow-sm mb-4">
+
+        <div className="card-body p-4">
+
+          <div className="d-flex align-items-center mb-3">
+
+            <div
+              className="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-3"
+              style={{
+                width: "45px",
+                height: "45px",
+              }}
+            >
+              📢
+            </div>
+
+            <div>
+              <h4 className="fw-bold mb-0">
+                Post an Announcement
+              </h4>
+
+              <small className="text-muted">
+                Share important information with the campus
+              </small>
+            </div>
+
+          </div>
+
+
+          <div className="mb-3">
+
+            <label className="form-label fw-semibold">
+              Title
+            </label>
+
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Enter announcement title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={posting}
+            />
+
+          </div>
+
+
+          <div className="mb-3">
+
+            <label className="form-label fw-semibold">
+              Announcement
+            </label>
+
+            <textarea
+              className="form-control"
+              rows="4"
+              placeholder="Write your announcement here..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              disabled={posting}
+            />
+
+          </div>
+
+
+          <button
+            className="btn btn-primary px-4"
+            onClick={postAnnouncement}
+            disabled={posting}
+          >
+            {posting ? (
+              <>
+                <span
+                  className="spinner-border spinner-border-sm me-2"
+                  role="status"
+                ></span>
+                Posting...
+              </>
+            ) : (
+              "📢 Post Announcement"
+            )}
+          </button>
+
+
+          {message && (
+            <div
+              className={`alert mt-3 mb-0 ${
+                messageType === "success"
+                  ? "alert-success"
+                  : "alert-danger"
+              }`}
+            >
+              {message}
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+
+      {/* =========================
+          ANNOUNCEMENTS
+      ========================== */}
+
+      <div className="mb-5">
+
+        <div className="d-flex align-items-center mb-3">
+
+          <div
+            className="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-3"
+            style={{
+              width: "45px",
+              height: "45px",
+            }}
+          >
+            📢
+          </div>
+
+          <div>
+            <h4 className="fw-bold mb-0">
+              Campus Announcements
+            </h4>
+
+            <small className="text-muted">
+              Latest updates from your campus
+            </small>
+          </div>
+
+        </div>
+
 
         {loading ? (
-          <div className="alert alert-secondary">
-            Loading announcements...
+
+          <div className="card border-0 shadow-sm">
+
+            <div className="card-body text-center py-5">
+
+              <div
+                className="spinner-border text-primary mb-3"
+                role="status"
+              ></div>
+
+              <p className="text-muted mb-0">
+                Loading announcements...
+              </p>
+
+            </div>
+
           </div>
+
         ) : announcements.length === 0 ? (
-          <div className="alert alert-secondary">
-            No announcements yet.
+
+          <div className="card border-0 shadow-sm">
+
+            <div className="card-body text-center py-5">
+
+              <div className="fs-1 mb-3">
+                📭
+              </div>
+
+              <h5 className="fw-bold">
+                No announcements yet
+              </h5>
+
+              <p className="text-muted mb-0">
+                Be the first to share an important campus update.
+              </p>
+
+            </div>
+
           </div>
+
         ) : (
+
           announcements.map((announcement) => (
+
             <div
-              className="card shadow-sm border-0 mb-3"
+              className="card border-0 shadow-sm mb-3"
               key={announcement.id}
             >
-              <div className="card-body">
 
-                <h5 className="fw-bold">
-                  {announcement.title}
-                </h5>
+              <div className="card-body p-4">
 
-                <p className="mb-2">
-                  {announcement.content}
-                </p>
+                <div className="d-flex align-items-start">
 
-                <small className="text-muted">
-                  Posted on{" "}
-                  {new Date(
-                    announcement.created_at
-                  ).toLocaleString()}
-                </small>
+                  <div
+                    className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3 flex-shrink-0"
+                    style={{
+                      width: "42px",
+                      height: "42px",
+                    }}
+                  >
+                    📢
+                  </div>
+
+                  <div className="flex-grow-1">
+
+                    <h5 className="fw-bold mb-2">
+                      {announcement.title}
+                    </h5>
+
+                    <p
+                      className="mb-3"
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        lineHeight: "1.6",
+                      }}
+                    >
+                      {announcement.content}
+                    </p>
+
+                    <div className="text-muted small">
+                      🕒 Posted on{" "}
+                      {new Date(
+                        announcement.created_at
+                      ).toLocaleString()}
+                    </div>
+
+                  </div>
+
+                </div>
 
               </div>
+
             </div>
+
           ))
+
         )}
+
       </div>
 
     </section>

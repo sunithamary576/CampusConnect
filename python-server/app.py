@@ -1,17 +1,7 @@
-from flask import (
-    Flask,
-    request,
-    jsonify,
-    session,
-    send_from_directory
-)
-
+from flask import Flask, request, jsonify, session, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
-from werkzeug.security import (
-    generate_password_hash,
-    check_password_hash
-)
+from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 import mysql.connector
@@ -23,42 +13,85 @@ import time
 from email.message import EmailMessage
 
 
-# ============================================================
-# LOAD ENVIRONMENT VARIABLES
-# ============================================================
+# =========================
+# BASIC SETUP
+# =========================
 
 load_dotenv()
 
-
-# ============================================================
-# FLASK APP CONFIGURATION
-# ============================================================
-
 app = Flask(__name__)
 
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
+app.secret_key = os.getenv(
+    "FLASK_SECRET_KEY",
+    "campusconnect-secret-key"
+)
 
 CORS(
     app,
-    supports_credentials=True
+    supports_credentials=True,
+    origins=["http://localhost:3000"]
 )
 
 
-# ============================================================
+# =========================
+# DATABASE CONFIGURATION
+# =========================
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "campusconnect")
+
+
+def get_db_connection():
+    return mysql.connector.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
+    )
+
+
+# =========================
+# EMAIL CONFIGURATION
+# =========================
+
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+
+print("Campus Connect Python Backend")
+print("EMAIL_USER loaded:", EMAIL_USER)
+print(
+    "EMAIL_PASS loaded:",
+    "YES" if EMAIL_PASS else "NO"
+)
+
+
+# =========================
+# OTP STORAGE
+# =========================
+
+pending_registrations = {}
+otp_store = {}
+reset_verified = {}
+
+
+# =========================
 # FILE UPLOAD CONFIGURATION
-# ============================================================
+# =========================
 
 UPLOAD_FOLDER = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "uploads"
 )
 
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-os.makedirs(
-    UPLOAD_FOLDER,
-    exist_ok=True
-)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {
     "png",
@@ -69,13 +102,8 @@ ALLOWED_EXTENSIONS = {
     "docx"
 }
 
-MAX_FILE_SIZE = 3 * 1024 * 1024
-
-app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
-
 
 def allowed_file(filename):
-
     return (
         "." in filename
         and filename.rsplit(".", 1)[1].lower()
@@ -83,46 +111,53 @@ def allowed_file(filename):
     )
 
 
-# ============================================================
-# DATABASE CONNECTION
-# ============================================================
+# =========================
+# SEND EMAIL
+# =========================
 
-def get_db_connection():
+def send_email(to_email, subject, body):
 
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
-    )
+    if not EMAIL_USER or not EMAIL_PASS:
+        print("Email configuration missing.")
+        return False
+
+    try:
+        message = EmailMessage()
+
+        message["Subject"] = subject
+        message["From"] = EMAIL_USER
+        message["To"] = to_email
+
+        message.set_content(body)
+
+        with smtplib.SMTP(
+            "smtp.gmail.com",
+            587
+        ) as server:
+
+            server.starttls()
+
+            server.login(
+                EMAIL_USER,
+                EMAIL_PASS
+            )
+
+            server.send_message(message)
+
+        return True
+
+    except smtplib.SMTPAuthenticationError:
+        print("Gmail authentication failed.")
+        return False
+
+    except Exception as error:
+        print("Email error:", error)
+        return False
 
 
-# ============================================================
-# GMAIL CONFIGURATION
-# ============================================================
-
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
-
-
-# ============================================================
-# TEMPORARY OTP STORAGE
-# ============================================================
-
-# Registration OTP data
-pending_registrations = {}
-
-# General email verification OTP
-otp_store = {}
-
-# Successfully verified password-reset emails
-reset_verified = set()
-
-
-# ============================================================
+# =========================
 # REGISTRATION
-# ============================================================
+# =========================
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -131,7 +166,7 @@ def register():
 
     if not data:
         return jsonify({
-            "message": "No registration data received."
+            "message": "Invalid request."
         }), 400
 
     name = data.get("name", "").strip()
@@ -141,94 +176,84 @@ def register():
     year = data.get("year")
     password = data.get("password", "")
 
-    if (
-        not name
-        or not email
-        or not usn
-        or not department
-        or not year
-        or not password
-    ):
+    if not all([
+        name,
+        email,
+        usn,
+        department,
+        year,
+        password
+    ]):
         return jsonify({
             "message": "All fields are required."
         }), 400
 
     if not email.endswith("@cmrit.ac.in"):
-
         return jsonify({
             "message": "Please use your CMRIT college email."
         }), 400
 
-    # Check database for duplicate email or USN
-
-    db = get_db_connection()
-    cursor = db.cursor()
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM users
-        WHERE email = %s OR usn = %s
-        """,
-        (email, usn)
-    )
-
-    existing_user = cursor.fetchone()
-
-    cursor.close()
-    db.close()
-
-    if existing_user:
-
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
         return jsonify({
-            "message": "Email or USN is already registered."
-        }), 409
+            "message": "Invalid year."
+        }), 400
 
-    # Generate OTP
-
-    otp = str(
-        random.randint(100000, 999999)
-    )
-
-    # Store temporary registration
-
-    pending_registrations[email] = {
-
-        "name": name,
-        "email": email,
-        "usn": usn,
-        "department": department,
-        "year": year,
-        "password": password,
-        "otp": otp,
-        "expires_at": time.time() + 300
-    }
-
-    # Check email configuration
-
-    if not EMAIL_USER or not EMAIL_PASS:
-
-        print(
-            "ERROR: EMAIL_USER or EMAIL_PASS is missing."
-        )
-
+    if len(password) < 6:
         return jsonify({
-            "message": "Email server is not configured."
-        }), 500
+            "message": "Password must contain at least 6 characters."
+        }), 400
 
     try:
 
-        message = EmailMessage()
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-        message["Subject"] = (
-            "Campus Connect - Registration OTP"
-        )
+        cursor.execute("""
+            SELECT id, email, usn
+            FROM users
+            WHERE email = %s OR usn = %s
+        """, (
+            email,
+            usn
+        ))
 
-        message["From"] = EMAIL_USER
-        message["To"] = email
+        existing_user = cursor.fetchone()
 
-        message.set_content(
-            f"""Hello,
+        cursor.close()
+        db.close()
+
+        if existing_user:
+
+            if existing_user["email"] == email:
+                return jsonify({
+                    "message": "Email is already registered."
+                }), 409
+
+            if existing_user["usn"] == usn:
+                return jsonify({
+                    "message": "USN is already registered."
+                }), 409
+
+        otp = str(random.randint(100000, 999999))
+
+        pending_registrations[email] = {
+            "name": name,
+            "email": email,
+            "usn": usn,
+            "department": department,
+            "year": year,
+            "password": password,
+            "otp": otp,
+            "expires_at": time.time() + 300
+        }
+
+        email_sent = send_email(
+            email,
+            "Campus Connect Registration OTP",
+            f"""
+Hello {name},
 
 Your Campus Connect registration OTP is:
 
@@ -236,63 +261,35 @@ Your Campus Connect registration OTP is:
 
 This OTP is valid for 5 minutes.
 
-Please do not share this OTP with anyone.
+Do not share this OTP with anyone.
 
-Regards,
-Campus Connect Team
+Campus Connect
 """
         )
 
-        with smtplib.SMTP(
-            "smtp.gmail.com",
-            587
-        ) as server:
+        if not email_sent:
+            pending_registrations.pop(email, None)
 
-            server.ehlo()
-
-            server.starttls()
-
-            server.ehlo()
-
-            server.login(
-                EMAIL_USER,
-                EMAIL_PASS
-            )
-
-            server.send_message(message)
-
-        print(
-            f"Registration OTP sent to: {email}"
-        )
+            return jsonify({
+                "message": "Unable to send OTP. Please check email configuration."
+            }), 500
 
         return jsonify({
-            "message": (
-                "OTP sent successfully. "
-                "Please check your email."
-            )
+            "message": "OTP sent successfully."
         }), 200
-
-    except smtplib.SMTPAuthenticationError:
-
-        return jsonify({
-            "message": "Gmail authentication failed."
-        }), 500
 
     except Exception as error:
 
-        print(
-            "EMAIL ERROR:",
-            error
-        )
+        print("Register error:", error)
 
         return jsonify({
-            "message": "Unable to send OTP."
+            "message": "Unable to register."
         }), 500
 
 
-# ============================================================
+# =========================
 # VERIFY REGISTRATION OTP
-# ============================================================
+# =========================
 
 @app.route(
     "/verify-registration-otp",
@@ -303,7 +300,6 @@ def verify_registration_otp():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -318,100 +314,94 @@ def verify_registration_otp():
         ""
     ).strip()
 
-    if not email or not otp:
-
-        return jsonify({
-            "message": "Email and OTP are required."
-        }), 400
-
-    registration = pending_registrations.get(
-        email
-    )
+    registration = pending_registrations.get(email)
 
     if not registration:
-
         return jsonify({
-            "message": (
-                "Registration not found. "
-                "Please register again."
-            )
-        }), 400
-
-    # Check OTP expiry
+            "message": "Registration request not found."
+        }), 404
 
     if time.time() > registration["expires_at"]:
 
-        del pending_registrations[email]
-
-        return jsonify({
-            "message": (
-                "OTP expired. "
-                "Please register again."
-            )
-        }), 400
-
-    # Check OTP
-
-    if registration["otp"] != otp:
-
-        return jsonify({
-            "message": "Incorrect OTP."
-        }), 400
-
-    # Hash password before storing it
-
-    password_hash = generate_password_hash(
-        registration["password"]
-    )
-
-    db = get_db_connection()
-    cursor = db.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO users
-        (
-            name,
+        pending_registrations.pop(
             email,
-            usn,
-            department,
-            year,
-            password_hash,
-            is_verified
+            None
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
+
+        return jsonify({
+            "message": "OTP has expired."
+        }), 400
+
+    if otp != registration["otp"]:
+        return jsonify({
+            "message": "Invalid OTP."
+        }), 400
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        password_hash = generate_password_hash(
+            registration["password"]
+        )
+
+        cursor.execute("""
+            INSERT INTO users
+            (
+                name,
+                email,
+                usn,
+                department,
+                year,
+                password_hash,
+                is_verified
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+        """, (
             registration["name"],
             registration["email"],
             registration["usn"],
             registration["department"],
             registration["year"],
-            password_hash,
-            True
+            password_hash
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        pending_registrations.pop(
+            email,
+            None
         )
-    )
 
-    db.commit()
+        return jsonify({
+            "message": "Registration successful."
+        }), 201
 
-    cursor.close()
-    db.close()
+    except mysql.connector.IntegrityError:
 
-    # Remove temporary registration
+        return jsonify({
+            "message": "Email or USN is already registered."
+        }), 409
 
-    del pending_registrations[email]
+    except Exception as error:
 
-    return jsonify({
-        "message": (
-            "Registration successful. "
-            "Your account has been created."
+        print(
+            "Registration verification error:",
+            error
         )
-    }), 201
+
+        return jsonify({
+            "message": "Unable to complete registration."
+        }), 500
 
 
-# ============================================================
+# =========================
 # LOGIN
-# ============================================================
+# =========================
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -419,7 +409,6 @@ def login():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -435,117 +424,140 @@ def login():
     )
 
     if not email or not password:
-
         return jsonify({
-            "message": (
-                "Email and password are required."
-            )
+            "message": "Email and password are required."
         }), 400
 
-    db = get_db_connection()
-    cursor = db.cursor(
-        dictionary=True
-    )
+    try:
 
-    cursor.execute(
-        """
-        SELECT *
-        FROM users
-        WHERE email = %s
-        """,
-        (email,)
-    )
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-    user = cursor.fetchone()
+        cursor.execute("""
+            SELECT
+                id,
+                name,
+                email,
+                usn,
+                department,
+                year,
+                password_hash,
+                is_verified
+            FROM users
+            WHERE email = %s
+        """, (
+            email,
+        ))
 
-    if not user:
-
-        cursor.close()
-        db.close()
-
-        return jsonify({
-            "message": (
-                "Invalid email or password."
-            )
-        }), 401
-
-    if not user["is_verified"]:
+        user = cursor.fetchone()
 
         cursor.close()
         db.close()
 
+        if not user:
+
+            return jsonify({
+                "message": "Invalid email or password."
+            }), 401
+
+        if not user["is_verified"]:
+
+            return jsonify({
+                "message": "Please verify your account first."
+            }), 403
+
+        if not check_password_hash(
+            user["password_hash"],
+            password
+        ):
+
+            return jsonify({
+                "message": "Invalid email or password."
+            }), 401
+
+        session["user_id"] = user["id"]
+
         return jsonify({
-            "message": (
-                "Please verify your email "
-                "before logging in."
-            )
-        }), 403
+            "message": "Login successful.",
+            "user": {
+                "id": user["id"],
+                "name": user["name"],
+                "email": user["email"],
+                "usn": user["usn"],
+                "department": user["department"],
+                "year": user["year"]
+            }
+        }), 200
 
-    if not check_password_hash(
-        user["password_hash"],
-        password
-    ):
+    except Exception as error:
 
-        cursor.close()
-        db.close()
+        print("Login error:", error)
 
         return jsonify({
-            "message": (
-                "Invalid email or password."
-            )
-        }), 401
-
-    # Create Flask session
-
-    session["user_id"] = user["id"]
-    session["user_email"] = user["email"]
-    session["user_name"] = user["name"]
-
-    cursor.close()
-    db.close()
-
-    return jsonify({
-
-        "message": "Login successful.",
-
-        "user": {
-            "id": user["id"],
-            "name": user["name"],
-            "email": user["email"]
-        }
-
-    }), 200
+            "message": "Unable to login."
+        }), 500
 
 
-# ============================================================
-# CURRENT LOGGED-IN USER
-# ============================================================
+# =========================
+# CURRENT USER
+# =========================
 
 @app.route("/me", methods=["GET"])
-def get_current_user():
+def current_user():
 
     if "user_id" not in session:
-
         return jsonify({
             "message": "Not logged in."
         }), 401
 
-    return jsonify({
+    try:
 
-        "user": {
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-            "id": session["user_id"],
-            "name": session["user_name"],
-            "email": session["user_email"]
+        cursor.execute("""
+            SELECT
+                id,
+                name,
+                email,
+                usn,
+                department,
+                year
+            FROM users
+            WHERE id = %s
+        """, (
+            session["user_id"],
+        ))
 
-        }
+        user = cursor.fetchone()
 
-    }), 200
+        cursor.close()
+        db.close()
+
+        if not user:
+
+            session.clear()
+
+            return jsonify({
+                "message": "User not found."
+            }), 401
+
+        return jsonify({
+            "user": user
+        }), 200
+
+    except Exception as error:
+
+        print("ME error:", error)
+
+        return jsonify({
+            "message": "Unable to load user."
+        }), 500
 
 
-# ============================================================
+# =========================
 # LOGOUT
-# ============================================================
+# =========================
 
 @app.route("/logout", methods=["POST"])
 def logout():
@@ -553,13 +565,13 @@ def logout():
     session.clear()
 
     return jsonify({
-        "message": "Logout successful."
+        "message": "Logged out successfully."
     }), 200
 
 
-# ============================================================
-# GENERAL EMAIL OTP
-# ============================================================
+# =========================
+# GENERIC OTP
+# =========================
 
 @app.route("/send-otp", methods=["POST"])
 def send_otp():
@@ -567,7 +579,6 @@ def send_otp():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -578,120 +589,51 @@ def send_otp():
     ).strip().lower()
 
     if not email.endswith("@cmrit.ac.in"):
-
         return jsonify({
-            "message": (
-                "Please use your CMRIT college email."
-            )
+            "message": "Please use your CMRIT college email."
         }), 400
 
-    if not EMAIL_USER or not EMAIL_PASS:
-
-        print(
-            "ERROR: EMAIL_USER or EMAIL_PASS "
-            "is missing."
-        )
-
-        return jsonify({
-            "message": (
-                "Email server is not configured."
-            )
-        }), 500
-
     otp = str(
-        random.randint(100000, 999999)
+        random.randint(
+            100000,
+            999999
+        )
     )
 
     otp_store[email] = {
-
         "otp": otp,
-
-        "expires_at": (
-            time.time() + 300
-        )
+        "expires_at": time.time() + 300
     }
 
-    try:
-
-        message = EmailMessage()
-
-        message["Subject"] = (
-            "Campus Connect - Email Verification OTP"
-        )
-
-        message["From"] = EMAIL_USER
-        message["To"] = email
-
-        message.set_content(
-            f"""Hello,
-
-Your Campus Connect verification OTP is:
+    if not send_email(
+        email,
+        "Campus Connect OTP",
+        f"""
+Your Campus Connect OTP is:
 
 {otp}
 
 This OTP is valid for 5 minutes.
-
-Please do not share this OTP with anyone.
-
-Regards,
-Campus Connect Team
 """
-        )
+    ):
 
-        with smtplib.SMTP(
-            "smtp.gmail.com",
-            587
-        ) as server:
-
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-
-            server.login(
-                EMAIL_USER,
-                EMAIL_PASS
-            )
-
-            server.send_message(message)
-
-        print(
-            f"OTP successfully sent to: {email}"
-        )
-
-        return jsonify({
-            "message": "OTP sent successfully."
-        }), 200
-
-    except smtplib.SMTPAuthenticationError as error:
-
-        print(
-            "GMAIL AUTHENTICATION ERROR:",
-            error
-        )
-
-        return jsonify({
-            "message": (
-                "Gmail authentication failed. "
-                "Check EMAIL_USER and "
-                "Google App Password."
-            )
-        }), 500
-
-    except Exception as error:
-
-        print(
-            "EMAIL ERROR:",
-            error
+        otp_store.pop(
+            email,
+            None
         )
 
         return jsonify({
             "message": "Unable to send OTP."
         }), 500
 
+    return jsonify({
+        "message": "OTP sent successfully."
+    }), 200
 
-# ============================================================
-# VERIFY GENERAL OTP
-# ============================================================
+
+# =========================
+# VERIFY GENERIC OTP
+# =========================
 
 @app.route("/verify-otp", methods=["POST"])
 def verify_otp():
@@ -699,7 +641,6 @@ def verify_otp():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -714,50 +655,44 @@ def verify_otp():
         ""
     ).strip()
 
-    record = otp_store.get(email)
+    stored = otp_store.get(email)
 
-    if not record:
-
-        return jsonify({
-            "message": (
-                "OTP not found. "
-                "Please request a new OTP."
-            )
-        }), 400
-
-    if time.time() > record["expires_at"]:
-
-        del otp_store[email]
+    if not stored:
 
         return jsonify({
-            "message": (
-                "OTP expired. "
-                "Please request a new OTP."
-            )
-        }), 400
+            "message": "OTP not found."
+        }), 404
 
-    if record["otp"] != otp:
+    if time.time() > stored["expires_at"]:
+
+        otp_store.pop(
+            email,
+            None
+        )
 
         return jsonify({
-            "message": "Incorrect OTP."
+            "message": "OTP has expired."
         }), 400
 
-    del otp_store[email]
+    if otp != stored["otp"]:
 
-    print(
-        f"Email verified successfully: {email}"
+        return jsonify({
+            "message": "Invalid OTP."
+        }), 400
+
+    otp_store.pop(
+        email,
+        None
     )
 
     return jsonify({
-        "message": (
-            "Email verified successfully."
-        )
+        "message": "OTP verified successfully."
     }), 200
 
 
-# ============================================================
-# SEND PASSWORD RESET OTP
-# ============================================================
+# =========================
+# FORGOT PASSWORD
+# =========================
 
 @app.route(
     "/send-reset-otp",
@@ -768,7 +703,6 @@ def send_reset_otp():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -778,86 +712,57 @@ def send_reset_otp():
         ""
     ).strip().lower()
 
-    if not email:
-
-        return jsonify({
-            "message": "Email is required."
-        }), 400
-
     if not email.endswith("@cmrit.ac.in"):
-
         return jsonify({
-            "message": (
-                "Please use your CMRIT college email."
-            )
+            "message": "Please use your CMRIT college email."
         }), 400
-
-    # Check whether account exists
-
-    db = get_db_connection()
-    cursor = db.cursor(
-        dictionary=True
-    )
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM users
-        WHERE email = %s
-        """,
-        (email,)
-    )
-
-    user = cursor.fetchone()
-
-    cursor.close()
-    db.close()
-
-    if not user:
-
-        return jsonify({
-            "message": (
-                "No account found with this email."
-            )
-        }), 404
-
-    if not EMAIL_USER or not EMAIL_PASS:
-
-        return jsonify({
-            "message": (
-                "Email server is not configured."
-            )
-        }), 500
-
-    # Generate reset OTP
-
-    otp = str(
-        random.randint(100000, 999999)
-    )
-
-    otp_store[email] = {
-
-        "otp": otp,
-
-        "expires_at": (
-            time.time() + 300
-        )
-    }
 
     try:
 
-        message = EmailMessage()
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-        message["Subject"] = (
-            "Campus Connect - Password Reset OTP"
+        cursor.execute("""
+            SELECT id
+            FROM users
+            WHERE email = %s
+              AND is_verified = TRUE
+        """, (
+            email,
+        ))
+
+        user = cursor.fetchone()
+
+        cursor.close()
+        db.close()
+
+        if not user:
+
+            return jsonify({
+                "message": "No verified account found with this email."
+            }), 404
+
+        otp = str(
+            random.randint(
+                100000,
+                999999
+            )
         )
 
-        message["From"] = EMAIL_USER
-        message["To"] = email
+        otp_store[email] = {
+            "otp": otp,
+            "expires_at": time.time() + 300
+        }
 
-        message.set_content(
-            f"""Hello,
+        reset_verified.pop(
+            email,
+            None
+        )
 
+        if not send_email(
+            email,
+            "Campus Connect Password Reset OTP",
+            f"""
 Your Campus Connect password reset OTP is:
 
 {otp}
@@ -865,64 +770,38 @@ Your Campus Connect password reset OTP is:
 This OTP is valid for 5 minutes.
 
 If you did not request a password reset,
-you can ignore this email.
-
-Regards,
-Campus Connect Team
+ignore this email.
 """
-        )
+        ):
 
-        with smtplib.SMTP(
-            "smtp.gmail.com",
-            587
-        ) as server:
-
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-
-            server.login(
-                EMAIL_USER,
-                EMAIL_PASS
+            otp_store.pop(
+                email,
+                None
             )
 
-            server.send_message(message)
-
-        print(
-            f"Password reset OTP sent to: {email}"
-        )
+            return jsonify({
+                "message": "Unable to send OTP."
+            }), 500
 
         return jsonify({
-            "message": (
-                "Reset OTP sent successfully."
-            )
+            "message": "Password reset OTP sent successfully."
         }), 200
-
-    except smtplib.SMTPAuthenticationError:
-
-        return jsonify({
-            "message": (
-                "Gmail authentication failed."
-            )
-        }), 500
 
     except Exception as error:
 
         print(
-            "RESET EMAIL ERROR:",
+            "Send reset OTP error:",
             error
         )
 
         return jsonify({
-            "message": (
-                "Unable to send reset OTP."
-            )
+            "message": "Unable to send reset OTP."
         }), 500
 
 
-# ============================================================
-# VERIFY PASSWORD RESET OTP
-# ============================================================
+# =========================
+# VERIFY RESET OTP
+# =========================
 
 @app.route(
     "/verify-reset-otp",
@@ -933,7 +812,6 @@ def verify_reset_otp():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -948,60 +826,48 @@ def verify_reset_otp():
         ""
     ).strip()
 
-    if not email or not otp:
+    stored = otp_store.get(email)
+
+    if not stored:
 
         return jsonify({
-            "message": (
-                "Email and OTP are required."
-            )
-        }), 400
+            "message": "OTP not found."
+        }), 404
 
-    stored_otp = otp_store.get(email)
+    if time.time() > stored["expires_at"]:
 
-    if not stored_otp:
-
-        return jsonify({
-            "message": (
-                "OTP not found. "
-                "Please request a new OTP."
-            )
-        }), 400
-
-    if time.time() > stored_otp["expires_at"]:
-
-        del otp_store[email]
+        otp_store.pop(
+            email,
+            None
+        )
 
         return jsonify({
-            "message": (
-                "OTP expired. "
-                "Please request a new OTP."
-            )
+            "message": "OTP has expired."
         }), 400
 
-    if otp != stored_otp["otp"]:
+    if otp != stored["otp"]:
 
         return jsonify({
             "message": "Invalid OTP."
         }), 400
 
-    # Mark email as verified for password reset
+    otp_store.pop(
+        email,
+        None
+    )
 
-    reset_verified.add(email)
-
-    # Remove OTP after successful verification
-
-    del otp_store[email]
+    reset_verified[email] = {
+        "expires_at": time.time() + 600
+    }
 
     return jsonify({
-        "message": (
-            "OTP verified successfully."
-        )
+        "message": "OTP verified successfully."
     }), 200
 
 
-# ============================================================
+# =========================
 # RESET PASSWORD
-# ============================================================
+# =========================
 
 @app.route(
     "/reset-password",
@@ -1012,7 +878,6 @@ def reset_password():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "message": "Invalid request."
         }), 400
@@ -1030,80 +895,90 @@ def reset_password():
     if not email or not new_password:
 
         return jsonify({
-            "message": (
-                "Email and new password are required."
-            )
-        }), 400
-
-    # OTP must be verified first
-
-    if email not in reset_verified:
-
-        return jsonify({
-            "message": (
-                "Please verify your OTP first."
-            )
+            "message": "Email and new password are required."
         }), 400
 
     if len(new_password) < 6:
 
         return jsonify({
-            "message": (
-                "Password must be at least "
-                "6 characters long."
-            )
+            "message": "Password must contain at least 6 characters."
         }), 400
 
-    # Hash new password
+    verified = reset_verified.get(email)
 
-    password_hash = generate_password_hash(
-        new_password
-    )
-
-    db = get_db_connection()
-    cursor = db.cursor()
-
-    cursor.execute(
-        """
-        UPDATE users
-        SET password_hash = %s
-        WHERE email = %s
-        """,
-        (
-            password_hash,
-            email
-        )
-    )
-
-    db.commit()
-
-    rows_updated = cursor.rowcount
-
-    cursor.close()
-    db.close()
-
-    if rows_updated == 0:
-
-        reset_verified.discard(email)
+    if not verified:
 
         return jsonify({
-            "message": "User account not found."
-        }), 404
+            "message": "Please verify the OTP first."
+        }), 403
 
-    # Reset process completed
+    if time.time() > verified["expires_at"]:
 
-    reset_verified.remove(email)
-
-    return jsonify({
-        "message": (
-            "Password changed successfully."
+        reset_verified.pop(
+            email,
+            None
         )
-    }), 200
+
+        return jsonify({
+            "message": "Password reset session has expired."
+        }), 403
+
+    try:
+
+        password_hash = generate_password_hash(
+            new_password
+        )
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            UPDATE users
+            SET password_hash = %s
+            WHERE email = %s
+        """, (
+            password_hash,
+            email
+        ))
+
+        db.commit()
+
+        if cursor.rowcount == 0:
+
+            cursor.close()
+            db.close()
+
+            return jsonify({
+                "message": "User not found."
+            }), 404
+
+        cursor.close()
+        db.close()
+
+        reset_verified.pop(
+            email,
+            None
+        )
+
+        return jsonify({
+            "message": "Password changed successfully."
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Reset password error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to reset password."
+        }), 500
 
 
-# ============================================================
-# ANNOUNCEMENTS - GET
-# ============================================================
+# =========================
+# ANNOUNCEMENTS
+# =========================
 
 @app.route(
     "/announcements",
@@ -1111,36 +986,49 @@ def reset_password():
 )
 def get_announcements():
 
-    db = get_db_connection()
-    cursor = db.cursor(
-        dictionary=True
-    )
+    try:
 
-    cursor.execute(
-        """
-        SELECT
-            id,
-            title,
-            content,
-            created_at
-        FROM announcements
-        ORDER BY created_at DESC
-        """
-    )
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-    announcements = cursor.fetchall()
+        cursor.execute("""
+            SELECT
+                id,
+                title,
+                content,
+                created_at
+            FROM announcements
+            ORDER BY created_at DESC
+        """)
 
-    cursor.close()
-    db.close()
+        announcements = cursor.fetchall()
 
-    return jsonify({
-        "announcements": announcements
-    }), 200
+        for announcement in announcements:
 
+            if announcement["created_at"]:
 
-# ============================================================
-# ANNOUNCEMENTS - POST
-# ============================================================
+                announcement["created_at"] = (
+                    announcement["created_at"].isoformat()
+                )
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "announcements": announcements
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Announcements GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load announcements."
+        }), 500
+
 
 @app.route(
     "/announcements",
@@ -1175,44 +1063,47 @@ def create_announcement():
     if not title or not content:
 
         return jsonify({
-            "message": (
-                "Title and content are required."
-            )
+            "message": "Title and content are required."
         }), 400
 
-    db = get_db_connection()
-    cursor = db.cursor()
+    try:
 
-    cursor.execute(
-        """
-        INSERT INTO announcements
-        (
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            INSERT INTO announcements
+            (title, content)
+            VALUES (%s, %s)
+        """, (
             title,
             content
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Announcement added successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Announcements POST error:",
+            error
         )
-        VALUES (%s, %s)
-        """,
-        (
-            title,
-            content
-        )
-    )
 
-    db.commit()
-
-    cursor.close()
-    db.close()
-
-    return jsonify({
-        "message": (
-            "Announcement posted successfully."
-        )
-    }), 201
+        return jsonify({
+            "message": "Unable to add announcement."
+        }), 500
 
 
-# ============================================================
-# FORUM POSTS - GET
-# ============================================================
+# =========================
+# FORUM POSTS
+# =========================
 
 @app.route(
     "/forum/posts",
@@ -1220,42 +1111,56 @@ def create_announcement():
 )
 def get_forum_posts():
 
-    db = get_db_connection()
-    cursor = db.cursor(
-        dictionary=True
-    )
+    try:
 
-    cursor.execute(
-        """
-        SELECT
-            forum_posts.id,
-            forum_posts.title,
-            forum_posts.content,
-            forum_posts.created_at,
-            users.name AS user_name,
-            forum_posts.file_name,
-            forum_posts.file_path,
-            forum_posts.file_type
-        FROM forum_posts
-        JOIN users
-            ON forum_posts.user_id = users.id
-        ORDER BY forum_posts.created_at DESC
-        """
-    )
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-    posts = cursor.fetchall()
+        cursor.execute("""
+            SELECT
+                fp.id,
+                fp.user_id,
+                fp.title,
+                fp.content,
+                fp.file_name,
+                fp.file_path,
+                fp.file_type,
+                fp.created_at,
+                u.name AS user_name
+            FROM forum_posts fp
+            JOIN users u
+                ON fp.user_id = u.id
+            ORDER BY fp.created_at DESC
+        """)
 
-    cursor.close()
-    db.close()
+        posts = cursor.fetchall()
 
-    return jsonify({
-        "posts": posts
-    }), 200
+        for post in posts:
 
+            if post["created_at"]:
 
-# ============================================================
-# FORUM POSTS - CREATE
-# ============================================================
+                post["created_at"] = (
+                    post["created_at"].isoformat()
+                )
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "posts": posts
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Forum GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load forum posts."
+        }), 500
+
 
 @app.route(
     "/forum/posts",
@@ -1269,8 +1174,6 @@ def create_forum_post():
             "message": "Please login first."
         }), 401
 
-    # FormData is used because a file can be included
-
     title = request.form.get(
         "title",
         ""
@@ -1281,120 +1184,108 @@ def create_forum_post():
         ""
     ).strip()
 
+    file = request.files.get("file")
+
     if not title or not content:
 
         return jsonify({
-            "message": (
-                "Title and content are required."
-            )
+            "message": "Title and content are required."
         }), 400
-
-    file = request.files.get("file")
 
     file_name = None
     file_path = None
     file_type = None
 
-    # Handle optional attachment
+    try:
 
-    if file and file.filename:
+        if file and file.filename:
 
-        if not allowed_file(
-            file.filename
-        ):
+            if not allowed_file(file.filename):
 
-            return jsonify({
-                "message": (
-                    "Only PNG, JPG, JPEG, PDF, "
-                    "DOC and DOCX files are allowed."
+                return jsonify({
+                    "message": "Invalid file type."
+                }), 400
+
+            original_name = secure_filename(
+                file.filename
+            )
+
+            unique_name = (
+                f"{int(time.time())}_"
+                f"{random.randint(1000, 9999)}_"
+                f"{original_name}"
+            )
+
+            file.save(
+                os.path.join(
+                    app.config["UPLOAD_FOLDER"],
+                    unique_name
                 )
-            }), 400
-
-        original_name = secure_filename(
-            file.filename
-        )
-
-        if not original_name:
-
-            return jsonify({
-                "message": "Invalid file name."
-            }), 400
-
-        unique_name = (
-
-            str(session["user_id"])
-
-            + "_"
-
-            + str(
-                int(time.time())
             )
 
-            + "_"
+            file_name = original_name
+            file_path = unique_name
 
-            + original_name
-        )
-
-        file.save(
-            os.path.join(
-                app.config["UPLOAD_FOLDER"],
-                unique_name
+            extension = (
+                original_name
+                .rsplit(".", 1)[1]
+                .lower()
             )
-        )
 
-        file_name = original_name
-        file_path = unique_name
-        file_type = file.content_type
+            file_type = extension
 
-    # Save post information in MySQL
+        db = get_db_connection()
+        cursor = db.cursor()
 
-    db = get_db_connection()
-    cursor = db.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO forum_posts
-        (
-            user_id,
-            title,
-            content,
-            file_name,
-            file_path,
-            file_type
-        )
-        VALUES (%s, %s, %s, %s, %s, %s)
-        """,
-        (
+        cursor.execute("""
+            INSERT INTO forum_posts
+            (
+                user_id,
+                title,
+                content,
+                file_name,
+                file_path,
+                file_type
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
             session["user_id"],
             title,
             content,
             file_name,
             file_path,
             file_type
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Post created successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Forum POST error:",
+            error
         )
-    )
 
-    db.commit()
-
-    cursor.close()
-    db.close()
-
-    return jsonify({
-        "message": (
-            "Forum post created successfully."
-        )
-    }), 201
+        return jsonify({
+            "message": "Unable to create post."
+        }), 500
 
 
-# ============================================================
-# SERVE FORUM FILES
-# ============================================================
+# =========================
+# FORUM FILES
+# =========================
 
 @app.route(
-    "/forum/files/<path:filename>",
-    methods=["GET"]
+    "/forum/files/<path:filename>"
 )
-def get_forum_file(filename):
+def forum_file(filename):
 
     return send_from_directory(
         app.config["UPLOAD_FOLDER"],
@@ -1402,9 +1293,9 @@ def get_forum_file(filename):
     )
 
 
-# ============================================================
-# FORUM REPLIES - GET
-# ============================================================
+# =========================
+# FORUM REPLIES
+# =========================
 
 @app.route(
     "/forum/posts/<int:post_id>/replies",
@@ -1412,43 +1303,59 @@ def get_forum_file(filename):
 )
 def get_forum_replies(post_id):
 
-    db = get_db_connection()
-    cursor = db.cursor(
-        dictionary=True
-    )
+    try:
 
-    cursor.execute(
-        """
-        SELECT
-            forum_replies.id,
-            forum_replies.content,
-            forum_replies.created_at,
-            users.name AS user_name,
-            forum_replies.file_name,
-            forum_replies.file_path,
-            forum_replies.file_type
-        FROM forum_replies
-        JOIN users
-            ON forum_replies.user_id = users.id
-        WHERE forum_replies.post_id = %s
-        ORDER BY forum_replies.created_at ASC
-        """,
-        (post_id,)
-    )
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
 
-    replies = cursor.fetchall()
+        cursor.execute("""
+            SELECT
+                fr.id,
+                fr.post_id,
+                fr.user_id,
+                fr.content,
+                fr.file_name,
+                fr.file_path,
+                fr.file_type,
+                fr.created_at,
+                u.name AS user_name
+            FROM forum_replies fr
+            JOIN users u
+                ON fr.user_id = u.id
+            WHERE fr.post_id = %s
+            ORDER BY fr.created_at ASC
+        """, (
+            post_id,
+        ))
 
-    cursor.close()
-    db.close()
+        replies = cursor.fetchall()
 
-    return jsonify({
-        "replies": replies
-    }), 200
+        for reply in replies:
 
+            if reply["created_at"]:
 
-# ============================================================
-# FORUM REPLIES - CREATE
-# ============================================================
+                reply["created_at"] = (
+                    reply["created_at"].isoformat()
+                )
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "replies": replies
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Forum replies GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load replies."
+        }), 500
+
 
 @app.route(
     "/forum/posts/<int:post_id>/replies",
@@ -1467,173 +1374,1420 @@ def create_forum_reply(post_id):
         ""
     ).strip()
 
+    file = request.files.get("file")
+
     if not content:
 
         return jsonify({
-            "message": "Reply cannot be empty."
+            "message": "Reply content is required."
         }), 400
-
-    db = get_db_connection()
-    cursor = db.cursor()
-
-    # Check whether post exists
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM forum_posts
-        WHERE id = %s
-        """,
-        (post_id,)
-    )
-
-    post = cursor.fetchone()
-
-    if not post:
-
-        cursor.close()
-        db.close()
-
-        return jsonify({
-            "message": "Forum post not found."
-        }), 404
-
-    file = request.files.get("file")
 
     file_name = None
     file_path = None
     file_type = None
 
-    # Handle optional reply attachment
+    try:
 
-    if file and file.filename:
+        if file and file.filename:
 
-        if not allowed_file(
-            file.filename
-        ):
+            if not allowed_file(file.filename):
 
-            cursor.close()
-            db.close()
+                return jsonify({
+                    "message": "Invalid file type."
+                }), 400
 
-            return jsonify({
-                "message": (
-                    "Only PNG, JPG, JPEG, PDF, "
-                    "DOC and DOCX files are allowed."
+            original_name = secure_filename(
+                file.filename
+            )
+
+            unique_name = (
+                f"{int(time.time())}_"
+                f"{random.randint(1000, 9999)}_"
+                f"{original_name}"
+            )
+
+            file.save(
+                os.path.join(
+                    app.config["UPLOAD_FOLDER"],
+                    unique_name
                 )
-            }), 400
+            )
 
-        original_name = secure_filename(
-            file.filename
-        )
+            file_name = original_name
+            file_path = unique_name
 
-        if not original_name:
+            extension = (
+                original_name
+                .rsplit(".", 1)[1]
+                .lower()
+            )
+
+            file_type = extension
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            SELECT id
+            FROM forum_posts
+            WHERE id = %s
+        """, (
+            post_id,
+        ))
+
+        post = cursor.fetchone()
+
+        if not post:
 
             cursor.close()
             db.close()
 
             return jsonify({
-                "message": "Invalid file name."
-            }), 400
+                "message": "Post not found."
+            }), 404
 
-        unique_name = (
-
-            str(session["user_id"])
-
-            + "_reply_"
-
-            + str(
-                int(time.time())
+        cursor.execute("""
+            INSERT INTO forum_replies
+            (
+                post_id,
+                user_id,
+                content,
+                file_name,
+                file_path,
+                file_type
             )
-
-            + "_"
-
-            + original_name
-        )
-
-        file.save(
-            os.path.join(
-                app.config["UPLOAD_FOLDER"],
-                unique_name
-            )
-        )
-
-        file_name = original_name
-        file_path = unique_name
-        file_type = file.content_type
-
-    # Save reply in MySQL
-
-    cursor.execute(
-        """
-        INSERT INTO forum_replies
-        (
-            post_id,
-            user_id,
-            content,
-            file_name,
-            file_path,
-            file_type
-        )
-        VALUES (%s, %s, %s, %s, %s, %s)
-        """,
-        (
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
             post_id,
             session["user_id"],
             content,
             file_name,
             file_path,
             file_type
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Reply added successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Forum reply POST error:",
+            error
         )
+
+        return jsonify({
+            "message": "Unable to add reply."
+        }), 500
+
+
+# =========================
+# EVENTS
+# =========================
+
+@app.route(
+    "/events",
+    methods=["GET"]
+)
+def get_events():
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                title,
+                description,
+                event_date,
+                event_time,
+                venue,
+                created_at
+            FROM events
+            ORDER BY event_date ASC, event_time ASC
+        """)
+
+        events = cursor.fetchall()
+
+        for event in events:
+
+            if event["event_date"]:
+
+                event["event_date"] = (
+                    event["event_date"].isoformat()
+                )
+
+            if event["event_time"]:
+
+                event["event_time"] = str(
+                    event["event_time"]
+                )
+
+            if event["created_at"]:
+
+                event["created_at"] = (
+                    event["created_at"].isoformat()
+                )
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "events": events
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Events GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load events."
+        }), 500
+
+
+@app.route(
+    "/events",
+    methods=["POST"]
+)
+def create_event():
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    data = request.get_json()
+
+    if not data:
+
+        return jsonify({
+            "message": "Invalid request."
+        }), 400
+
+    title = data.get(
+        "title",
+        ""
+    ).strip()
+
+    description = data.get(
+        "description",
+        ""
+    ).strip()
+
+    event_date = data.get(
+        "event_date",
+        ""
+    ).strip()
+
+    event_time = data.get(
+        "event_time",
+        ""
+    ).strip()
+
+    venue = data.get(
+        "venue",
+        ""
+    ).strip()
+
+    if not all([
+        title,
+        description,
+        event_date,
+        event_time,
+        venue
+    ]):
+
+        return jsonify({
+            "message": "All event fields are required."
+        }), 400
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            INSERT INTO events
+            (
+                title,
+                description,
+                event_date,
+                event_time,
+                venue
+            )
+            VALUES (%s, %s, %s, %s, %s)
+        """, (
+            title,
+            description,
+            event_date,
+            event_time,
+            venue
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Event added successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Events POST error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to add event."
+        }), 500
+
+
+# =========================
+# CLUBS
+# =========================
+
+@app.route(
+    "/clubs",
+    methods=["GET"]
+)
+def get_clubs():
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                name,
+                description,
+                created_at
+            FROM clubs
+            ORDER BY created_at DESC
+        """)
+
+        clubs = cursor.fetchall()
+
+        for club in clubs:
+
+            if club["created_at"]:
+
+                club["created_at"] = (
+                    club["created_at"].isoformat()
+                )
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "clubs": clubs
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Clubs GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load clubs."
+        }), 500
+
+
+@app.route(
+    "/clubs",
+    methods=["POST"]
+)
+def create_club():
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    data = request.get_json()
+
+    if not data:
+
+        return jsonify({
+            "message": "Invalid request."
+        }), 400
+
+    name = data.get(
+        "name",
+        ""
+    ).strip()
+
+    description = data.get(
+        "description",
+        ""
+    ).strip()
+
+    if not name or not description:
+
+        return jsonify({
+            "message": "Club name and description are required."
+        }), 400
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            INSERT INTO clubs
+            (name, description)
+            VALUES (%s, %s)
+        """, (
+            name,
+            description
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Club added successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Clubs POST error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to add club."
+        }), 500
+
+
+@app.route(
+    "/clubs/<int:club_id>",
+    methods=["DELETE"]
+)
+def delete_club(club_id):
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            DELETE FROM clubs
+            WHERE id = %s
+        """, (
+            club_id,
+        ))
+
+        db.commit()
+
+        if cursor.rowcount == 0:
+
+            cursor.close()
+            db.close()
+
+            return jsonify({
+                "message": "Club not found."
+            }), 404
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Club deleted successfully."
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Clubs DELETE error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to delete club."
+        }), 500
+
+
+# =========================
+# MARKETPLACE
+# =========================
+
+@app.route(
+    "/market",
+    methods=["GET"]
+)
+def get_market_items():
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                user_id,
+                name,
+                price,
+                contact,
+                image_name,
+                image_path,
+                created_at
+            FROM market_items
+            ORDER BY created_at DESC
+        """)
+
+        items = cursor.fetchall()
+
+        for item in items:
+
+            if item["created_at"]:
+
+                item["created_at"] = (
+                    item["created_at"].isoformat()
+                )
+
+            if item["price"] is not None:
+
+                item["price"] = float(
+                    item["price"]
+                )
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "items": items
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Market GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load marketplace."
+        }), 500
+
+
+@app.route(
+    "/market",
+    methods=["POST"]
+)
+def create_market_item():
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    name = request.form.get(
+        "name",
+        ""
+    ).strip()
+
+    price = request.form.get(
+        "price",
+        ""
+    ).strip()
+
+    contact = request.form.get(
+        "contact",
+        ""
+    ).strip()
+
+    image = request.files.get("image")
+
+    if not name or not price or not contact:
+
+        return jsonify({
+            "message": "Please fill all fields."
+        }), 400
+
+    try:
+
+        price_value = float(price)
+
+        if price_value < 0:
+
+            return jsonify({
+                "message": "Price cannot be negative."
+            }), 400
+
+    except ValueError:
+
+        return jsonify({
+            "message": "Please enter a valid price."
+        }), 400
+
+    image_name = None
+    image_path = None
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        if image and image.filename:
+
+            if not allowed_file(
+                image.filename
+            ):
+
+                cursor.close()
+                db.close()
+
+                return jsonify({
+                    "message": "Invalid image type."
+                }), 400
+
+            original_name = secure_filename(
+                image.filename
+            )
+
+            unique_name = (
+                f"{int(time.time())}_"
+                f"{random.randint(1000, 9999)}_"
+                f"{original_name}"
+            )
+
+            image.save(
+                os.path.join(
+                    app.config["UPLOAD_FOLDER"],
+                    unique_name
+                )
+            )
+
+            image_name = original_name
+            image_path = unique_name
+
+        cursor.execute("""
+            INSERT INTO market_items
+            (
+                user_id,
+                name,
+                price,
+                contact,
+                image_name,
+                image_path
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            session["user_id"],
+            name,
+            price_value,
+            contact,
+            image_name,
+            image_path
+        ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Item added successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Market POST error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to add item."
+        }), 500
+
+
+@app.route(
+    "/market/files/<path:filename>"
+)
+def market_file(filename):
+
+    return send_from_directory(
+        app.config["UPLOAD_FOLDER"],
+        filename
     )
 
-    db.commit()
 
-    cursor.close()
-    db.close()
+@app.route(
+    "/market/<int:item_id>",
+    methods=["DELETE"]
+)
+def delete_market_item(item_id):
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT image_path
+            FROM market_items
+            WHERE id = %s
+              AND user_id = %s
+        """, (
+            item_id,
+            session["user_id"]
+        ))
+
+        item = cursor.fetchone()
+
+        if not item:
+
+            cursor.close()
+            db.close()
+
+            return jsonify({
+                "message": "Item not found or you cannot delete it."
+            }), 404
+
+        cursor.execute("""
+            DELETE FROM market_items
+            WHERE id = %s
+              AND user_id = %s
+        """, (
+            item_id,
+            session["user_id"]
+        ))
+
+        db.commit()
+
+        if item["image_path"]:
+
+            file_path = os.path.join(
+                app.config["UPLOAD_FOLDER"],
+                item["image_path"]
+            )
+
+            if os.path.exists(file_path):
+
+                os.remove(file_path)
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Item deleted successfully."
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Market DELETE error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to delete item."
+        }), 500
+
+
+@app.route(
+    "/market/<int:item_id>",
+    methods=["PUT"]
+)
+def update_market_item(item_id):
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    data = request.get_json()
+
+    if not data:
+
+        return jsonify({
+            "message": "Invalid request."
+        }), 400
+
+    name = data.get(
+        "name",
+        ""
+    ).strip()
+
+    price = str(
+        data.get(
+            "price",
+            ""
+        )
+    ).strip()
+
+    if not name or not price:
+
+        return jsonify({
+            "message": "Item name and price are required."
+        }), 400
+
+    try:
+
+        price_value = float(price)
+
+        if price_value < 0:
+
+            return jsonify({
+                "message": "Price cannot be negative."
+            }), 400
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            UPDATE market_items
+            SET name = %s,
+                price = %s
+            WHERE id = %s
+              AND user_id = %s
+        """, (
+            name,
+            price_value,
+            item_id,
+            session["user_id"]
+        ))
+
+        db.commit()
+
+        if cursor.rowcount == 0:
+
+            cursor.close()
+            db.close()
+
+            return jsonify({
+                "message": "Item not found or you cannot edit it."
+            }), 404
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Item updated successfully."
+        }), 200
+
+    except ValueError:
+
+        return jsonify({
+            "message": "Please enter a valid price."
+        }), 400
+
+    except Exception as error:
+
+        print(
+            "Market UPDATE error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to update item."
+        }), 500
+
+
+# =========================
+# POLLS
+# =========================
+
+@app.route(
+    "/polls",
+    methods=["GET"]
+)
+def get_polls():
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        user_id = session.get("user_id")
+
+        cursor.execute("""
+            SELECT
+                p.id,
+                p.question,
+                p.created_at,
+                o.id AS option_id,
+                o.option_text,
+                o.votes
+            FROM polls p
+            LEFT JOIN poll_options o
+                ON p.id = o.poll_id
+            ORDER BY p.created_at DESC,
+                     o.id ASC
+        """)
+
+        rows = cursor.fetchall()
+
+        polls = {}
+
+        for row in rows:
+
+            poll_id = row["id"]
+
+            if poll_id not in polls:
+
+                polls[poll_id] = {
+                    "id": poll_id,
+                    "question": row["question"],
+                    "created_at": (
+                        row["created_at"].isoformat()
+                        if row["created_at"]
+                        else None
+                    ),
+                    "options": [],
+                    "has_voted": False
+                }
+
+            if row["option_id"] is not None:
+
+                polls[poll_id]["options"].append({
+                    "id": row["option_id"],
+                    "option_text": row["option_text"],
+                    "votes": row["votes"]
+                })
+
+        # ---------------------------------
+        # CHECK WHETHER CURRENT USER VOTED
+        # ---------------------------------
+
+        if user_id:
+
+            cursor.execute("""
+                SELECT poll_id
+                FROM poll_votes
+                WHERE user_id = %s
+            """, (
+                user_id,
+            ))
+
+            voted_polls = cursor.fetchall()
+
+            voted_poll_ids = {
+                row["poll_id"]
+                for row in voted_polls
+            }
+
+            for poll in polls.values():
+
+                if poll["id"] in voted_poll_ids:
+
+                    poll["has_voted"] = True
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "polls": list(polls.values())
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Polls GET error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to load polls."
+        }), 500
+
+
+# =========================
+# CREATE POLL
+# =========================
+
+@app.route(
+    "/polls",
+    methods=["POST"]
+)
+def create_poll():
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    data = request.get_json()
+
+    if not data:
+
+        return jsonify({
+            "message": "Invalid request."
+        }), 400
+
+    question = data.get(
+        "question",
+        ""
+    ).strip()
+
+    options = data.get(
+        "options",
+        []
+    )
+
+    if not question:
+
+        return jsonify({
+            "message": "Poll question is required."
+        }), 400
+
+    if not isinstance(
+        options,
+        list
+    ):
+
+        return jsonify({
+            "message": "Options must be a list."
+        }), 400
+
+    options = [
+        str(option).strip()
+        for option in options
+        if str(option).strip()
+    ]
+
+    if len(options) < 2:
+
+        return jsonify({
+            "message": "At least two options are required."
+        }), 400
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            INSERT INTO polls
+            (
+                user_id,
+                question
+            )
+            VALUES (%s, %s)
+        """, (
+            session["user_id"],
+            question
+        ))
+
+        poll_id = cursor.lastrowid
+
+        for option in options:
+
+            cursor.execute("""
+                INSERT INTO poll_options
+                (
+                    poll_id,
+                    option_text,
+                    votes
+                )
+                VALUES (%s, %s, 0)
+            """, (
+                poll_id,
+                option
+            ))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Poll created successfully."
+        }), 201
+
+    except Exception as error:
+
+        print(
+            "Polls POST error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to create poll."
+        }), 500
+
+
+# =========================
+# VOTE IN POLL
+# =========================
+
+@app.route(
+    "/polls/<int:poll_id>/vote/<int:option_id>",
+    methods=["POST"]
+)
+def vote_poll(
+    poll_id,
+    option_id
+):
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    user_id = session["user_id"]
+
+    db = None
+    cursor = None
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        # ---------------------------------
+        # CHECK IF USER ALREADY VOTED
+        # ---------------------------------
+
+        cursor.execute("""
+            SELECT id
+            FROM poll_votes
+            WHERE poll_id = %s
+              AND user_id = %s
+        """, (
+            poll_id,
+            user_id
+        ))
+
+        existing_vote = cursor.fetchone()
+
+        if existing_vote:
+
+            return jsonify({
+                "message": "You have already voted in this poll."
+            }), 409
+
+        # ---------------------------------
+        # CHECK OPTION BELONGS TO POLL
+        # ---------------------------------
+
+        cursor.execute("""
+            SELECT id
+            FROM poll_options
+            WHERE id = %s
+              AND poll_id = %s
+        """, (
+            option_id,
+            poll_id
+        ))
+
+        option = cursor.fetchone()
+
+        if not option:
+
+            return jsonify({
+                "message": "Invalid poll option."
+            }), 404
+
+        # ---------------------------------
+        # RECORD VOTE
+        # ---------------------------------
+
+        cursor.execute("""
+            INSERT INTO poll_votes
+            (
+                poll_id,
+                option_id,
+                user_id
+            )
+            VALUES (%s, %s, %s)
+        """, (
+            poll_id,
+            option_id,
+            user_id
+        ))
+
+        # ---------------------------------
+        # INCREASE VOTE COUNT
+        # ---------------------------------
+
+        cursor.execute("""
+            UPDATE poll_options
+            SET votes = votes + 1
+            WHERE id = %s
+        """, (
+            option_id,
+        ))
+
+        db.commit()
+
+        return jsonify({
+            "message": "Vote recorded successfully."
+        }), 200
+
+    except mysql.connector.IntegrityError:
+
+        if db:
+            db.rollback()
+
+        return jsonify({
+            "message": "You have already voted in this poll."
+        }), 409
+
+    except Exception as error:
+
+        if db:
+            db.rollback()
+
+        print(
+            "Poll vote error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to record vote."
+        }), 500
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if db:
+            db.close()
+
+
+# =========================
+# DELETE POLL
+# =========================
+
+@app.route(
+    "/polls/<int:poll_id>",
+    methods=["DELETE"]
+)
+def delete_poll(poll_id):
+
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    try:
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            DELETE FROM polls
+            WHERE id = %s
+              AND user_id = %s
+        """, (
+            poll_id,
+            session["user_id"]
+        ))
+
+        db.commit()
+
+        if cursor.rowcount == 0:
+
+            cursor.close()
+            db.close()
+
+            return jsonify({
+                "message": "Poll not found or you cannot delete it."
+            }), 404
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "message": "Poll deleted successfully."
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "Poll DELETE error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to delete poll."
+        }), 500
+
+
+# =========================
+# UPDATE POLL
+# =========================
+
+@app.route(
+    "/polls/<int:poll_id>",
+    methods=["PUT"]
+)
+def update_poll(poll_id):
+
+    # Check login
+    if "user_id" not in session:
+
+        return jsonify({
+            "message": "Please login first."
+        }), 401
+
+    # Get data from React
+    data = request.get_json()
+
+    if not data:
+
+        return jsonify({
+            "message": "Invalid request."
+        }), 400
+
+    # Get new question
+    question = data.get(
+        "question",
+        ""
+    ).strip()
+
+    if not question:
+
+        return jsonify({
+            "message": "Poll question is required."
+        }), 400
+
+    db = None
+    cursor = None
+
+    try:
+
+        # Connect to MySQL
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+
+        # ---------------------------------
+        # STEP 1: Check poll ownership
+        # ---------------------------------
+
+        cursor.execute("""
+            SELECT id
+            FROM polls
+            WHERE id = %s
+              AND user_id = %s
+        """, (
+            poll_id,
+            session["user_id"]
+        ))
+
+        poll = cursor.fetchone()
+
+        # Poll does not exist or user is not creator
+        if not poll:
+
+            return jsonify({
+                "message": "Poll not found or you cannot edit it."
+            }), 404
+
+        # ---------------------------------
+        # STEP 2: Update poll
+        # ---------------------------------
+
+        cursor.execute("""
+            UPDATE polls
+            SET question = %s
+            WHERE id = %s
+              AND user_id = %s
+        """, (
+            question,
+            poll_id,
+            session["user_id"]
+        ))
+
+        db.commit()
+
+        # ---------------------------------
+        # STEP 3: Success
+        # ---------------------------------
+
+        return jsonify({
+            "message": "Poll updated successfully."
+        }), 200
+
+    except Exception as error:
+
+        # Rollback if something goes wrong
+        if db:
+            db.rollback()
+
+        print(
+            "Poll UPDATE error:",
+            error
+        )
+
+        return jsonify({
+            "message": "Unable to update poll."
+        }), 500
+
+    finally:
+
+        # Close database resources
+        if cursor:
+            cursor.close()
+
+        if db:
+            db.close()
+
+# =========================
+# ERROR HANDLER
+# =========================
+
+@app.errorhandler(413)
+def file_too_large(error):
 
     return jsonify({
-        "message": (
-            "Reply posted successfully."
-        )
-    }), 201
+        "message": "File is too large. Maximum size is 3 MB."
+    }), 413
 
 
-# ============================================================
-# SERVER START
-# ============================================================
+# =========================
+# START SERVER
+# =========================
 
 if __name__ == "__main__":
 
-    print("--------------------------------")
-    print("Campus Connect Python Backend")
-    print("--------------------------------")
-
-    if EMAIL_USER:
-
-        print(
-            "EMAIL_USER loaded:",
-            EMAIL_USER
-        )
-
-    else:
-
-        print(
-            "ERROR: EMAIL_USER not found"
-        )
-
-    if EMAIL_PASS:
-
-        print(
-            "EMAIL_PASS loaded: YES"
-        )
-
-    else:
-
-        print(
-            "ERROR: EMAIL_PASS not found"
-        )
-
-    print("--------------------------------")
+    print(
+        "Campus Connect server starting..."
+    )
 
     app.run(
         host="127.0.0.1",

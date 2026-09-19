@@ -1,11 +1,21 @@
-import React from "react";
+import React, { useState } from "react";
 
 export default function Calendar({ events }) {
   const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
 
-  const firstDay = new Date(year, month, 1).getDay();
+  const [currentDate, setCurrentDate] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1)
+  );
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const firstDay = new Date(
+    year,
+    month,
+    1
+  ).getDay();
+
   const daysInMonth = new Date(
     year,
     month + 1,
@@ -24,6 +34,23 @@ export default function Calendar({ events }) {
     calendar.push(i);
   }
 
+
+  // Previous month
+  const previousMonth = () => {
+    setCurrentDate(
+      new Date(year, month - 1, 1)
+    );
+  };
+
+
+  // Next month
+  const nextMonth = () => {
+    setCurrentDate(
+      new Date(year, month + 1, 1)
+    );
+  };
+
+
   // Get events for a particular day
   const getEventsForDay = (day) => {
     const dateString = `${year}-${String(
@@ -34,26 +61,56 @@ export default function Calendar({ events }) {
     )}`;
 
     return events.filter(
-      (event) => event.event_date === dateString
+      (event) =>
+        event.event_date === dateString
     );
   };
+
+
+  // Check today's date
+  const isToday = (day) => {
+    return (
+      day === today.getDate() &&
+      month === today.getMonth() &&
+      year === today.getFullYear()
+    );
+  };
+
 
   return (
     <div className="calendar-container">
 
       {/* Calendar Header */}
+      <div className="d-flex justify-content-between align-items-center mb-3">
 
-      <div className="text-center mb-3">
-        <h4 className="fw-bold">
-          {today.toLocaleString("default", {
-            month: "long",
-          })}{" "}
+        <button
+          className="btn btn-outline-primary btn-sm"
+          onClick={previousMonth}
+        >
+          ← Previous
+        </button>
+
+        <h4 className="fw-bold mb-0">
+          {currentDate.toLocaleString(
+            "default",
+            {
+              month: "long",
+            }
+          )}{" "}
           {year}
         </h4>
+
+        <button
+          className="btn btn-outline-primary btn-sm"
+          onClick={nextMonth}
+        >
+          Next →
+        </button>
+
       </div>
 
-      {/* Weekday Names */}
 
+      {/* Weekday Names */}
       <div className="calendar-grid">
 
         {[
@@ -73,37 +130,53 @@ export default function Calendar({ events }) {
           </div>
         ))}
 
-        {/* Calendar Days */}
 
+        {/* Calendar Days */}
         {calendar.map((day, index) => (
+
           <div
-            className="calendar-cell"
+            className={`calendar-cell ${
+              day && isToday(day)
+                ? "border border-primary"
+                : ""
+            }`}
             key={index}
           >
+
             {day && (
               <>
-                <div className="calendar-date">
+                <div
+                  className={`calendar-date ${
+                    isToday(day)
+                      ? "fw-bold text-primary"
+                      : ""
+                  }`}
+                >
                   {day}
                 </div>
 
-                {/* Events on this day */}
 
+                {/* Events on this day */}
                 {getEventsForDay(day).map(
                   (event) => (
                     <div
                       key={event.id}
                       className="calendar-event-text"
                     >
-                      {event.title}
+                      📅 {event.title}
                     </div>
                   )
                 )}
+
               </>
             )}
+
           </div>
+
         ))}
 
       </div>
+
     </div>
   );
 }

@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
+
 import Header from "./components/Header";
 import Navbar from "./components/Navbar";
+
 import Login from "./components/Login";
 import Register from "./components/Register";
 import ForgotPassword from "./components/ForgotPassword";
+
 import Home from "./components/Home";
 import Forum from "./components/Forum/Forum";
 import Events from "./components/Events/Events";
@@ -11,22 +14,53 @@ import Market from "./components/Market/Market";
 import Clubs from "./components/Clubs/Clubs";
 import Polls from "./components/Polls/Polls";
 
+
 export default function App() {
-  // Remember the last page after browser refresh
+
+  /* ========================================
+     ACTIVE PAGE
+  ======================================== */
+
   const [active, setActive] = useState(
     localStorage.getItem("activePage") || "login"
   );
 
+
+  /* ========================================
+     CURRENT USER
+  ======================================== */
+
   const [currentUser, setCurrentUser] = useState(null);
+
+
+  /* ========================================
+     BACKGROUND
+  ======================================== */
+
   const [bg, setBg] = useState("");
 
-  // Change page and save it in localStorage
+
+  /* ========================================
+     CHANGE PAGE
+  ======================================== */
+
   const changePage = (page) => {
+
     setActive(page);
-    localStorage.setItem("activePage", page);
+
+    localStorage.setItem(
+      "activePage",
+      page
+    );
   };
 
+
+  /* ========================================
+     PAGE BACKGROUNDS
+  ======================================== */
+
   const backgrounds = {
+
     login:
       "https://news.belmont.edu/wp-content/uploads/2019/07/The-Lawn.jpg",
 
@@ -49,92 +83,229 @@ export default function App() {
       "https://images.unsplash.com/photo-1504384308090-c894fdcc538d",
   };
 
-  // Change background whenever active page changes
+
+  /* ========================================
+     UPDATE BACKGROUND WHEN PAGE CHANGES
+  ======================================== */
+
   useEffect(() => {
-    setBg(backgrounds[active]);
+
+    setBg(
+      backgrounds[active] || ""
+    );
+
   }, [active]);
 
-  // Check whether the user already has an active Flask session
+
+  /* ========================================
+     CHECK EXISTING LOGIN SESSION
+  ======================================== */
+
   useEffect(() => {
-    fetch("http://localhost:5000/me", {
-      credentials: "include",
-    })
+
+    fetch(
+      "http://localhost:5000/me",
+      {
+        credentials: "include",
+      }
+    )
+
       .then((response) => {
+
         if (response.ok) {
           return response.json();
         }
 
-        throw new Error("Not logged in");
+        throw new Error(
+          "Not logged in"
+        );
+
       })
+
       .then((data) => {
+
         setCurrentUser(data.user);
 
-        // Get the page saved before browser refresh
-        const savedPage = localStorage.getItem("activePage");
+        const savedPage =
+          localStorage.getItem(
+            "activePage"
+          );
 
-        if (savedPage && savedPage !== "login") {
-          // Stay on the page the user was viewing
+        if (
+          savedPage &&
+          savedPage !== "login"
+        ) {
+
           setActive(savedPage);
+
         } else {
-          // If there is no saved page, go to Home
+
           changePage("home");
+
         }
+
       })
+
       .catch(() => {
-        console.log("No active session.");
+
+        console.log(
+          "No active session."
+        );
+
       });
+
   }, []);
 
+
+  /* ========================================
+     MAIN UI
+  ======================================== */
+
   return (
+
     <div
       style={{
-        background: `url(${bg}) center/cover fixed`,
+        background: bg
+          ? `url(${bg}) center/cover fixed`
+          : "#f5f7fb",
+
         minHeight: "100vh",
       }}
     >
+
+      {/* ====================================
+          HEADER
+      ==================================== */}
+
       <Header />
 
-      {/* Login */}
-      {active === "login" && (
-        <Login
-          setActive={changePage}
-          setCurrentUser={setCurrentUser}
-        />
-      )}
 
-      {/* Registration */}
-      {active === "register" && (
-        <Register setActive={changePage} />
-      )}
+      {/* ====================================
+          TOP NAVIGATION
 
-      {/* Forgot Password */}
-      {active === "forgot-password" && (
-        <ForgotPassword setActive={changePage} />
-      )}
+          Navbar is placed HERE,
+          immediately below Header.
+      ==================================== */}
 
-      {/* Main Pages */}
-      {active === "home" && <Home />}
-
-      {active === "forum" && <Forum />}
-
-      {active === "events" && <Events />}
-
-      {active === "market" && <Market />}
-
-      {active === "clubs" && <Clubs />}
-
-      {active === "polls" && <Polls />}
-
-      {/* Navbar only appears after login */}
       {active !== "login" &&
         active !== "register" &&
         active !== "forgot-password" && (
+
           <Navbar
             active={active}
             setActive={changePage}
             setCurrentUser={setCurrentUser}
           />
+
         )}
+
+
+      {/* ====================================
+          LOGIN
+      ==================================== */}
+
+      {active === "login" && (
+
+        <Login
+          setActive={changePage}
+          setCurrentUser={setCurrentUser}
+        />
+
+      )}
+
+
+      {/* ====================================
+          REGISTER
+      ==================================== */}
+
+      {active === "register" && (
+
+        <Register
+          setActive={changePage}
+        />
+
+      )}
+
+
+      {/* ====================================
+          FORGOT PASSWORD
+      ==================================== */}
+
+      {active === "forgot-password" && (
+
+        <ForgotPassword
+          setActive={changePage}
+        />
+
+      )}
+
+
+      {/* ====================================
+          HOME
+      ==================================== */}
+
+      {active === "home" && (
+
+        <Home />
+
+      )}
+
+
+      {/* ====================================
+          FORUM
+      ==================================== */}
+
+      {active === "forum" && (
+
+        <Forum />
+
+      )}
+
+
+      {/* ====================================
+          EVENTS
+      ==================================== */}
+
+      {active === "events" && (
+
+        <Events />
+
+      )}
+
+
+      {/* ====================================
+          MARKETPLACE
+      ==================================== */}
+
+      {active === "market" && (
+
+        <Market />
+
+      )}
+
+
+      {/* ====================================
+          CLUBS
+      ==================================== */}
+
+      {active === "clubs" && (
+
+        <Clubs />
+
+      )}
+
+
+      {/* ====================================
+          POLLS
+      ==================================== */}
+
+      {active === "polls" && (
+
+        <Polls />
+
+      )}
+
     </div>
+
   );
 }

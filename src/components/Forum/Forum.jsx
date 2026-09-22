@@ -26,19 +26,10 @@ export default function Forum() {
   // REPLY STATES
   // =========================
 
-  // Replies for each post
   const [replies, setReplies] = useState({});
-
-  // Reply text for each post
   const [replyText, setReplyText] = useState({});
-
-  // Reply file for each post
   const [replyFile, setReplyFile] = useState({});
-
-  // Which posts have replies visible
   const [showReplies, setShowReplies] = useState({});
-
-  // Loading state for each post's replies
   const [replyLoading, setReplyLoading] = useState({});
 
   // =========================
@@ -295,20 +286,34 @@ export default function Forum() {
   // =========================
 
   return (
-    <div className="container py-5">
+    <div className="container py-4 pb-5">
 
       {/* =========================
           PAGE TITLE
       ========================= */}
 
       <div className="text-center mb-4">
-        <h1 className="fw-bold">
+
+        <div
+          className="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white mb-3"
+          style={{
+            width: "58px",
+            height: "58px",
+            fontSize: "26px",
+          }}
+        >
+          💬
+        </div>
+
+        <h1 className="fw-bold mb-2">
           Campus Forum
         </h1>
 
-        <p className="text-muted">
-          Ask questions, share ideas, and discuss with other students.
+        <p className="text-muted mb-0">
+          Ask questions, share ideas, and discuss with
+          other students.
         </p>
+
       </div>
 
       {/* =========================
@@ -333,16 +338,34 @@ export default function Forum() {
           CREATE POST
       ========================= */}
 
-      <div className="card shadow-sm border-0 mb-5">
-        <div className="card-body">
+      <div className="card shadow-sm border-0 mb-5 overflow-hidden">
 
-          <h4 className="fw-bold mb-3">
-            Create a Discussion
-          </h4>
+        <div className="card-body p-4">
+
+          <div className="d-flex align-items-center mb-3">
+
+            <div className="bg-primary-subtle text-primary rounded-3 p-2 me-3">
+              ✏️
+            </div>
+
+            <div>
+
+              <h4 className="fw-bold mb-0">
+                Create a Discussion
+              </h4>
+
+              <small className="text-muted">
+                Start a topic for your campus community
+              </small>
+
+            </div>
+
+          </div>
 
           {/* TITLE */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Title
             </label>
@@ -357,11 +380,13 @@ export default function Forum() {
               }
               disabled={posting}
             />
+
           </div>
 
           {/* CONTENT */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Description
             </label>
@@ -376,11 +401,13 @@ export default function Forum() {
               }
               disabled={posting}
             />
+
           </div>
 
           {/* POST ATTACHMENT */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Attachment (optional)
             </label>
@@ -400,6 +427,7 @@ export default function Forum() {
             <small className="text-muted">
               Max 3 MB • PNG, JPG, PDF, DOC, DOCX
             </small>
+
           </div>
 
           {/* SELECTED POST FILE */}
@@ -414,7 +442,7 @@ export default function Forum() {
           {/* CREATE BUTTON */}
 
           <button
-            className="btn btn-primary"
+            className="btn btn-primary px-4"
             onClick={createPost}
             disabled={posting}
           >
@@ -424,34 +452,64 @@ export default function Forum() {
           </button>
 
         </div>
+
       </div>
 
       {/* =========================
-          FORUM POSTS
+          DISCUSSIONS HEADER
       ========================= */}
 
-      <h3 className="fw-bold mb-3">
-        Discussions
-      </h3>
+      <div className="d-flex justify-content-between align-items-center mb-3">
 
-      {/* LOADING */}
+        <div>
+
+          <h3 className="fw-bold mb-1">
+            Discussions
+          </h3>
+
+          <p className="text-muted small mb-0">
+            Recent questions and conversations from students
+          </p>
+
+        </div>
+
+        <span className="badge text-bg-light border">
+          {posts.length}{" "}
+          {posts.length === 1
+            ? "discussion"
+            : "discussions"}
+        </span>
+
+      </div>
+
+      {/* =========================
+          LOADING
+      ========================= */}
 
       {loading ? (
+
         <div className="text-center py-4">
 
           <div
             className="spinner-border text-primary"
             role="status"
-          ></div>
+          >
+            <span className="visually-hidden">
+              Loading...
+            </span>
+          </div>
 
           <p className="mt-2">
             Loading discussions...
           </p>
 
         </div>
+
       ) : posts.length === 0 ? (
 
-        /* NO POSTS */
+        /* =========================
+           NO POSTS
+        ========================= */
 
         <div className="alert alert-info">
           No discussions yet. Be the first to create one!
@@ -459,21 +517,44 @@ export default function Forum() {
 
       ) : (
 
-        /* POSTS */
+        /* =========================
+           POSTS
+        ========================= */
 
         posts.map((post) => (
+
           <div
-            className="card shadow-sm border-0 mb-4"
+            className="card shadow-sm border-0 mb-4 forum-post-card"
             key={post.id}
           >
 
-            <div className="card-body">
+            <div className="card-body p-4">
 
-              {/* POST TITLE */}
+              {/* POST HEADER */}
 
-              <h4 className="fw-bold">
-                {post.title}
-              </h4>
+              <div className="d-flex align-items-start justify-content-between gap-3">
+
+                <div>
+
+                  <h4 className="fw-bold mb-2">
+                    {post.title}
+                  </h4>
+
+                  <div className="text-muted small">
+                    👤 {post.user_name || "Student"}
+                    {" • "}
+                    {new Date(
+                      post.created_at
+                    ).toLocaleString()}
+                  </div>
+
+                </div>
+
+                <span className="badge rounded-pill text-bg-light border">
+                  Discussion
+                </span>
+
+              </div>
 
               {/* POST CONTENT */}
 
@@ -495,25 +576,10 @@ export default function Forum() {
                 />
               )}
 
-              {/* POST INFORMATION */}
-
-              <div className="text-muted small mb-3">
-                Posted by{" "}
-                <strong>
-                  {post.user_name}
-                </strong>
-
-                {" • "}
-
-                {new Date(
-                  post.created_at
-                ).toLocaleString()}
-              </div>
-
               {/* REPLY BUTTON */}
 
               <button
-                className="btn btn-outline-primary btn-sm"
+                className="btn btn-outline-primary btn-sm px-3"
                 onClick={() =>
                   toggleReplies(post.id)
                 }
@@ -528,6 +594,7 @@ export default function Forum() {
               ========================= */}
 
               {showReplies[post.id] && (
+
                 <div className="mt-4">
 
                   <h6 className="fw-bold mb-3">
@@ -551,9 +618,10 @@ export default function Forum() {
 
                     replies[post.id].map(
                       (reply) => (
+
                         <div
                           key={reply.id}
-                          className="border rounded p-3 mb-2 bg-light"
+                          className="border rounded-3 p-3 mb-2 bg-light"
                         >
 
                           {/* REPLY USER */}
@@ -594,6 +662,7 @@ export default function Forum() {
                           </div>
 
                         </div>
+
                       )
                     )
 
@@ -691,11 +760,15 @@ export default function Forum() {
                   </div>
 
                 </div>
+
               )}
 
             </div>
+
           </div>
+
         ))
+
       )}
 
     </div>

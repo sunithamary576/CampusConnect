@@ -13,6 +13,14 @@ export default function Navbar({
   ];
 
   const logout = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to logout?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
       const response = await fetch(
         "http://localhost:5000/logout",
@@ -34,19 +42,27 @@ export default function Navbar({
 
   return (
     <div className="top-navigation">
+
       {items.map((item) => (
         <button
           key={item}
-          className={active === item ? "active" : ""}
+          className={
+            active === item ? "active" : ""
+          }
           onClick={() => setActive(item)}
         >
-          {item.charAt(0).toUpperCase() + item.slice(1)}
+          {item.charAt(0).toUpperCase() +
+            item.slice(1)}
         </button>
       ))}
 
-      <button onClick={logout}>
+      <button
+        className="logout-button"
+        onClick={logout}
+      >
         Logout
       </button>
+
     </div>
   );
 }

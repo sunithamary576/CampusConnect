@@ -4,14 +4,26 @@ import Calendar from "./Calendar";
 export default function Events() {
   const [events, setEvents] = useState([]);
 
+  // =========================
+  // FORM STATES
+  // =========================
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [venue, setVenue] = useState("");
 
+  // =========================
+  // LOADING STATES
+  // =========================
+
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
+
+  // =========================
+  // MESSAGE STATES
+  // =========================
 
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
@@ -34,7 +46,7 @@ export default function Events() {
       const data = await response.json();
 
       if (response.ok) {
-        setEvents(data.events);
+        setEvents(data.events || []);
       } else {
         setMessage(
           data.message || "Unable to load events."
@@ -42,18 +54,60 @@ export default function Events() {
         setMessageType("error");
       }
     } catch (error) {
-      console.error(error);
+      console.error("Load events error:", error);
 
-      setMessage("Unable to connect to the server.");
+      setMessage(
+        "Unable to connect to the server."
+      );
       setMessageType("error");
     } finally {
       setLoading(false);
     }
   };
 
+  // =========================
+  // LOAD EVENTS WHEN PAGE OPENS
+  // =========================
+
   useEffect(() => {
     loadEvents();
   }, []);
+
+  // =========================
+  // FORMAT DATE
+  // =========================
+
+  const formatDate = (eventDate) => {
+    if (!eventDate) {
+      return "";
+    }
+
+    return new Date(
+      `${eventDate}T00:00:00`
+    ).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  // =========================
+  // FORMAT TIME
+  // =========================
+
+  const formatTime = (eventTime) => {
+    if (!eventTime) {
+      return "";
+    }
+
+    return new Date(
+      `1970-01-01T${eventTime}`
+    ).toLocaleTimeString("en-IN", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
 
   // =========================
   // ADD EVENT
@@ -62,6 +116,7 @@ export default function Events() {
   const addEvent = async () => {
     setMessage("");
 
+    // Validate form
     if (
       !title.trim() ||
       !description.trim() ||
@@ -77,14 +132,20 @@ export default function Events() {
     try {
       setPosting(true);
 
+      setMessage("Adding event...");
+      setMessageType("loading");
+
       const response = await fetch(
         "http://localhost:5000/events",
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json",
           },
+
           credentials: "include",
+
           body: JSON.stringify({
             title: title.trim(),
             description: description.trim(),
@@ -98,66 +159,134 @@ export default function Events() {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage("Event added successfully.");
+        setMessage(
+          "Event added successfully."
+        );
         setMessageType("success");
 
-        // Clear form
+        // =========================
+        // CLEAR FORM
+        // =========================
+
         setTitle("");
         setDescription("");
         setDate("");
         setTime("");
         setVenue("");
 
-        // Reload events
-        loadEvents();
+        // =========================
+        // RELOAD EVENTS
+        // =========================
+
+        await loadEvents();
       } else {
         setMessage(
-          data.message || "Unable to add event."
+          data.message ||
+            "Unable to add event."
         );
         setMessageType("error");
       }
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Add event error:",
+        error
+      );
 
-      setMessage("Unable to connect to the server.");
+      setMessage(
+        "Unable to connect to the server."
+      );
       setMessageType("error");
     } finally {
       setPosting(false);
     }
   };
 
+  // =========================
+  // PAGE UI
+  // =========================
+
   return (
-    <section className="section">
+    <div className="container py-4 pb-5">
 
       {/* =========================
           PAGE TITLE
       ========================= */}
 
       <div className="text-center mb-4">
-        <h3 className="fw-bold">
-          Event Calendar 📅
+
+        <div
+          className="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white mb-3"
+          style={{
+            width: "58px",
+            height: "58px",
+            fontSize: "26px",
+          }}
+        >
+          📅
+        </div>
+
+        <h3 className="fw-bold mb-2">
+          Event Calendar
         </h3>
 
-        <p className="text-muted">
+        <p className="text-muted mb-0">
           Discover and share upcoming campus events.
         </p>
+
       </div>
 
+      {/* =========================
+          GLOBAL MESSAGE
+      ========================= */}
+
+      {message && (
+        <div
+          className={`alert ${
+            messageType === "success"
+              ? "alert-success"
+              : messageType === "error"
+              ? "alert-danger"
+              : "alert-secondary"
+          }`}
+        >
+          {message}
+        </div>
+      )}
 
       {/* =========================
           ADD EVENT
       ========================= */}
 
       <div className="card shadow-sm border-0 mb-4">
-        <div className="card-body">
 
-          <h4 className="fw-bold mb-3">
-            Add New Event
-          </h4>
+        <div className="card-body p-4">
 
-          {/* TITLE */}
+          <div className="d-flex align-items-center mb-3">
+
+            <div className="bg-primary-subtle text-primary rounded-3 p-2 me-3">
+              ➕
+            </div>
+
+            <div>
+
+              <h4 className="fw-bold mb-0">
+                Add New Event
+              </h4>
+
+              <small className="text-muted">
+                Share an upcoming campus event
+              </small>
+
+            </div>
+
+          </div>
+
+          {/* =========================
+              EVENT TITLE
+          ========================= */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Event Title
             </label>
@@ -172,12 +301,15 @@ export default function Events() {
               }
               disabled={posting}
             />
+
           </div>
 
-
-          {/* DESCRIPTION */}
+          {/* =========================
+              DESCRIPTION
+          ========================= */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Description
             </label>
@@ -188,16 +320,21 @@ export default function Events() {
               placeholder="Describe the event"
               value={description}
               onChange={(e) =>
-                setDescription(e.target.value)
+                setDescription(
+                  e.target.value
+                )
               }
               disabled={posting}
             />
+
           </div>
 
-
-          {/* DATE */}
+          {/* =========================
+              DATE
+          ========================= */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Date
             </label>
@@ -211,12 +348,15 @@ export default function Events() {
               }
               disabled={posting}
             />
+
           </div>
 
-
-          {/* TIME */}
+          {/* =========================
+              TIME
+          ========================= */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Time
             </label>
@@ -230,12 +370,15 @@ export default function Events() {
               }
               disabled={posting}
             />
+
           </div>
 
-
-          {/* VENUE */}
+          {/* =========================
+              VENUE
+          ========================= */}
 
           <div className="mb-3">
+
             <label className="form-label fw-semibold">
               Venue
             </label>
@@ -250,107 +393,185 @@ export default function Events() {
               }
               disabled={posting}
             />
+
           </div>
 
-
-          {/* ADD BUTTON */}
+          {/* =========================
+              ADD BUTTON
+          ========================= */}
 
           <button
-            className="btn btn-primary"
+            className="btn btn-primary px-4"
             onClick={addEvent}
             disabled={posting}
           >
-            {posting ? "Adding Event..." : "Add Event"}
+            {posting
+              ? "Adding Event..."
+              : "Add Event"}
           </button>
 
-
-          {/* MESSAGE */}
-
-          {message && (
-            <div
-              className={`alert mt-3 mb-0 ${
-                messageType === "success"
-                  ? "alert-success"
-                  : "alert-danger"
-              }`}
-            >
-              {message}
-            </div>
-          )}
-
         </div>
-      </div>
 
+      </div>
 
       {/* =========================
           CALENDAR
       ========================= */}
 
-      <div className="mb-4">
-        <Calendar events={events} />
-      </div>
+      <div className="card shadow-sm border-0 mb-5">
 
+        <div className="card-body p-4">
+
+          <h4 className="fw-bold mb-3">
+            Campus Calendar
+          </h4>
+
+          <Calendar events={events} />
+
+        </div>
+
+      </div>
 
       {/* =========================
           EVENTS LIST
       ========================= */}
 
-      <h4 className="fw-bold mb-3">
-        Upcoming Events
-      </h4>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+
+        <div>
+
+          <h4 className="fw-bold mb-1">
+            Upcoming Events
+          </h4>
+
+          <p className="text-muted small mb-0">
+            Explore upcoming activities and programs.
+          </p>
+
+        </div>
+
+        <span className="badge text-bg-light border">
+          {events.length}{" "}
+          {events.length === 1
+            ? "event"
+            : "events"}
+        </span>
+
+      </div>
+
+      {/* =========================
+          LOADING
+      ========================= */}
 
       {loading ? (
-        <div className="text-center py-4">
+
+        <div className="text-center py-5">
 
           <div
             className="spinner-border text-primary"
             role="status"
-          ></div>
+          >
+            <span className="visually-hidden">
+              Loading...
+            </span>
+          </div>
 
-          <p className="mt-2">
+          <p className="mt-3 text-muted">
             Loading events...
           </p>
 
         </div>
+
       ) : events.length === 0 ? (
 
+        /* =========================
+           NO EVENTS
+        ========================= */
+
         <div className="alert alert-info">
-          No events available yet.
+
+          <strong>
+            No events available yet.
+          </strong>
+
+          <div className="small mt-1">
+            Add the first campus event using
+            the form above.
+          </div>
+
         </div>
 
       ) : (
 
+        /* =========================
+           EVENTS
+        ========================= */
+
         events.map((event) => (
+
           <div
             className="card shadow-sm border-0 mb-3"
             key={event.id}
           >
 
-            <div className="card-body">
+            <div className="card-body p-4">
 
-              <h5 className="fw-bold">
+              {/* EVENT TITLE */}
+
+              <h5 className="fw-bold mb-2">
                 {event.title}
               </h5>
 
-              <p className="mb-3">
+              {/* EVENT DESCRIPTION */}
+
+              <p
+                className="mb-3"
+                style={{
+                  whiteSpace: "pre-wrap",
+                }}
+              >
                 {event.description}
               </p>
 
+              {/* EVENT INFORMATION */}
+
               <div className="text-muted">
 
-                <div className="mb-1">
-                  📅 <strong>Date:</strong>{" "}
-                  {event.event_date}
+                <div className="mb-2">
+
+                  📅{" "}
+                  <strong>
+                    Date:
+                  </strong>{" "}
+
+                  {formatDate(
+                    event.event_date
+                  )}
+
                 </div>
 
-                <div className="mb-1">
-                  🕐 <strong>Time:</strong>{" "}
-                  {event.event_time}
+                <div className="mb-2">
+
+                  🕐{" "}
+                  <strong>
+                    Time:
+                  </strong>{" "}
+
+                  {formatTime(
+                    event.event_time
+                  )}
+
                 </div>
 
                 <div>
-                  📍 <strong>Venue:</strong>{" "}
+
+                  📍{" "}
+                  <strong>
+                    Venue:
+                  </strong>{" "}
+
                   {event.venue}
+
                 </div>
 
               </div>
@@ -358,10 +579,11 @@ export default function Events() {
             </div>
 
           </div>
+
         ))
 
       )}
 
-    </section>
+    </div>
   );
 }

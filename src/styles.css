@@ -291,52 +291,118 @@ button.primary:disabled {
 }
 
 
-/* ========================================
+/* =========================
    CALENDAR
-======================================== */
+========================= */
 
-.calendar {
+.calendar-container {
+  width: 100%;
+}
+
+.calendar-grid {
   display: grid;
-
   grid-template-columns: repeat(7, 1fr);
-
   gap: 6px;
 }
 
-.calendar .header {
-  background: #2563eb;
-
-  color: #ffffff;
-
-  font-weight: 600;
-
+.calendar-cell {
+  min-height: 90px;
   padding: 8px;
-
-  border-radius: 6px;
-
-  text-align: center;
-}
-
-.calendar .cell {
-  padding: 10px;
-
-  background: rgba(255, 255, 255, 0.95);
-
-  border-radius: 8px;
-
-  text-align: center;
-
+  background: #ffffff;
   border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.calendar .event {
-  background: #2563eb;
+.calendar-weekday {
+  min-height: auto;
+  padding: 10px 5px;
+  background: #f8fafc;
+  color: #374151;
+}
 
-  color: #ffffff;
+.calendar-date {
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
 
+.calendar-today {
+  border: 2px solid #2563eb !important;
+  background: #eff6ff;
+}
+
+.calendar-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendar-event-text {
+  background: #eaf2ff;
+  color: #2563eb;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 0.72rem;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* =========================
+   CALENDAR RESPONSIVE
+========================= */
+
+@media (max-width: 768px) {
+  .calendar-grid {
+    gap: 3px;
+  }
+
+  .calendar-cell {
+    min-height: 70px;
+    padding: 5px;
+  }
+
+  .calendar-weekday {
+    font-size: 0.75rem;
+  }
+
+  .calendar-date {
+    font-size: 0.8rem;
+  }
+
+  .calendar-event-text {
+    font-size: 0.62rem;
+    padding: 3px 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .calendar-grid {
+    gap: 2px;
+  }
+
+  .calendar-cell {
+    min-height: 55px;
+    padding: 3px;
+    border-radius: 5px;
+  }
+
+  .calendar-weekday {
+    font-size: 0.65rem;
+    padding: 6px 2px;
+  }
+
+  .calendar-date {
+    font-size: 0.7rem;
+    margin-bottom: 3px;
+  }
+
+  .calendar-event-text {
+    font-size: 0.52rem;
+    padding: 2px;
+  }
+}
 
 /* ========================================
    EVENTS CALENDAR
@@ -786,4 +852,33 @@ select:focus-visible {
 
     min-width: 48px;
   }
+}
+
+/* =========================
+   GLOBAL APP BACKGROUND
+========================= */
+
+.app-background {
+  min-height: 100vh;
+  background-position: center;
+  background-size: cover;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  position: relative;
+}
+
+/* Overlay for readability */
+.app-background::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.78);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Keep application content above overlay */
+.app-background > * {
+  position: relative;
+  z-index: 1;
 }

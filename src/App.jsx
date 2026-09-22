@@ -61,24 +61,17 @@ export default function App() {
 
   const backgrounds = {
 
+    home: "https://images.pexels.com/photos/8846035/pexels-photo-8846035.jpeg",
     login:
-      "https://news.belmont.edu/wp-content/uploads/2019/07/The-Lawn.jpg",
-
-    home:
-      "https://s.yimg.com/ny/api/res/1.2/nw8KeJjTcZ2K4zfeTATGFg--/YXBwaWQ9aGlnaGxhbmRlcjt3PTEyNDI7aD04MTc7Y2Y9d2VicA--/https://media.zenfs.com/en/courier-news/fba1500eadbefb66c3959575c9f5bd9a",
-
+    "https://images.pexels.com/photos/19193975/pexels-photo-19193975.jpeg",
     forum:
       "https://images.unsplash.com/photo-1556761175-5973dc0f32e7",
 
-    events:
-      "https://cdn.prod.website-files.com/68734d7eaec6e398c11a5a42/68924e9a8cbe497e6796b731_shutterstock_1009539673.jpeg",
-
-    market:
-      "https://blog.bookswagon.com/wp-content/uploads/2018/06/online-books-stores.png",
-
+    events:"https://images.pexels.com/photos/19399416/pexels-photo-19399416.jpeg",
+        market:
+"https://images.pexels.com/photos/15444041/pexels-photo-15444041.jpeg",
     clubs:
-      "https://varthana.com/student/wp-content/uploads/2023/10/B585-Student.jpg",
-
+"https://images.pexels.com/photos/1116302/pexels-photo-1116302.jpeg",
     polls:
       "https://images.unsplash.com/photo-1504384308090-c894fdcc538d",
   };
